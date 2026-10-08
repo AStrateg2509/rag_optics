@@ -179,7 +179,10 @@ class Author(Base):
     affiliation: Mapped[str | None] = mapped_column(String(500))
     orcid: Mapped[str | None] = mapped_column(CHAR(19), unique=True)
 
-    articles_assoc: Mapped[list["ArticleAuthor"]] = relationship(back_populates="author")
+    # passive_deletes="all": ORM не обнуляет author_id у связок, удаление решает БД (RESTRICT)
+    articles_assoc: Mapped[list["ArticleAuthor"]] = relationship(
+        back_populates="author", passive_deletes="all"
+    )
     # Обратная сторона M:N только для чтения: изменяем связь через Article.set_authors
     articles: Mapped[list[Article]] = relationship(
         secondary="article_authors", viewonly=True, order_by=Article.id
