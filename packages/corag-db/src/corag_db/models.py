@@ -134,6 +134,7 @@ class Article(Base):
     language: Mapped[str] = mapped_column(CHAR(2), server_default="ru")
     page_start: Mapped[int] = mapped_column(Integer)
     page_end: Mapped[int] = mapped_column(Integer)
+    udc: Mapped[str | None] = mapped_column(String(50))  # УДК статьи (миграция 0002)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     issue: Mapped[Issue] = relationship(back_populates="articles")

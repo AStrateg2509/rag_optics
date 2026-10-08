@@ -24,6 +24,7 @@ class ArticleCreate:
     abstract: str | None = None
     doi: str | None = None
     language: str = "ru"
+    udc: str | None = None
 
 
 # Явная загрузка связей карточки: авторы по порядку и ключевые слова — без N+1

@@ -8,6 +8,7 @@ dependencies = [
     "asyncpg>=0.31,<0.33",
     "pgvector>=0.5,<0.6",
     "pydantic-settings>=2.15",
+    "python-dotenv>=1.0",
     "bcrypt>=5.0",
     "numpy>=2.5",
     "alembic>=1.20",
