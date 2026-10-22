@@ -7,7 +7,7 @@ flush нужен, чтобы получить id и сразу увидеть н
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import inspect, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from corag_db.base import Base
@@ -33,6 +33,10 @@ class BaseRepository[ModelT: Base]:
         pk = inspect(self.model).primary_key
         stmt = select(self.model).order_by(*pk).limit(limit).offset(offset)
         return (await self.session.scalars(stmt)).all()
+
+    async def count(self) -> int:
+        """Число строк таблицы (для пагинации: поле total)."""
+        return await self.session.scalar(select(func.count()).select_from(self.model)) or 0
 
     async def add(self, obj: ModelT) -> ModelT:
         self.session.add(obj)
