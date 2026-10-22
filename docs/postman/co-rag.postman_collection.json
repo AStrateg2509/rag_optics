@@ -1,0 +1,1014 @@
+{
+  "info": {
+    "name": "CO-RAG API (ЛР2)",
+    "description": "Сценарий ЛР2: регистрация → вход (JWT) → 401/403 → выпуск, скан, статья, фильтры → OCR (202/409). Запуск: Run collection. base_url: http://localhost:8000 или http://localhost/api (Nginx).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "admin_email",
+      "value": "admin@corag.local"
+    },
+    {
+      "key": "admin_password",
+      "value": "admin12345"
+    },
+    {
+      "key": "researcher_email",
+      "value": ""
+    },
+    {
+      "key": "researcher_password",
+      "value": "postman-pass-123"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "admin_token",
+      "value": ""
+    },
+    {
+      "key": "issue_number",
+      "value": ""
+    },
+    {
+      "key": "issue_id",
+      "value": ""
+    },
+    {
+      "key": "author_id",
+      "value": ""
+    },
+    {
+      "key": "article_id",
+      "value": ""
+    },
+    {
+      "key": "job_id",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Регистрация исследователя",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"researcher_email\", `postman.${Date.now()}@example.com`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"роль researcher, без password_hash\", () => {",
+                  "    const u = pm.response.json();",
+                  "    pm.expect(u.role).to.eql(\"researcher\");",
+                  "    pm.expect(u).to.not.have.property(\"password_hash\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{researcher_email}}\",\n  \"password\": \"{{researcher_password}}\",\n  \"full_name\": \"Postman Исследователь\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Роль назначает сервер. E-mail генерируется заново при каждом запуске."
+          }
+        },
+        {
+          "name": "Повторная регистрация → 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{researcher_email}}\",\n  \"password\": \"{{researcher_password}}\",\n  \"full_name\": \"Дубль\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Вход исследователя → JWT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"token\", pm.response.json().access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{researcher_email}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{researcher_password}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "OAuth2 Password: form-urlencoded, поля username и password. Токен сохраняется в {{token}}."
+          }
+        },
+        {
+          "name": "Текущий пользователь",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Без токена → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"WWW-Authenticate: Bearer\", () => pm.response.to.have.header(\"WWW-Authenticate\", \"Bearer\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/issues",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "issues"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Исследователь создаёт выпуск → 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/issues",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "issues"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"year\": 2027,\n  \"number\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Вход администратора → JWT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"admin_token\", pm.response.json().access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{admin_email}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{admin_password}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Пользователь из сида (python -m corag_db.seed); пароль — SEED_ADMIN_PASSWORD."
+          }
+        },
+        {
+          "name": "Пользователи (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users?limit=5",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Issues",
+      "item": [
+        {
+          "name": "Каталог выпусков за год",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/issues?year=2015",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "issues"
+              ],
+              "query": [
+                {
+                  "key": "year",
+                  "value": "2015"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Создать выпуск (admin)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"issue_number\", Math.floor(Date.now() / 1000) % 30000 + 1);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"issue_id\", pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/issues",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "issues"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"year\": 2027,\n  \"volume\": 51,\n  \"number\": \"{{issue_number}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Номер выпуска генерируется, чтобы коллекцию можно было запускать повторно."
+          }
+        },
+        {
+          "name": "Загрузить PDF-скан (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"статус uploaded\", () => pm.expect(pm.response.json().status).to.eql(\"uploaded\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/issues/{{issue_id}}/scan",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "issues",
+                "{{issue_id}}",
+                "scan"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "data/demo/scan.pdf"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Файл: data/demo/scan.pdf (uv run python scripts/make_test_pdf.py data/demo/scan.pdf --pages 8). В Postman путь задаётся относительно рабочего каталога (Settings → Working directory)."
+          }
+        },
+        {
+          "name": "Карточка выпуска",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/issues/{{issue_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "issues",
+                "{{issue_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Текст страницы",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/issues/1/pages/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "issues",
+                "1",
+                "pages",
+                "1"
+              ]
+            },
+            "description": "Страница 1 выпуска 1 из сида."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Articles",
+      "item": [
+        {
+          "name": "Найти автора",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"author_id\", pm.response.json().items[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/authors?q=Орлова",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "authors"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "Орлова"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Создать статью (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"article_id\", pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/articles",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "articles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"issue_id\": {{issue_id}},\n  \"title\": \"Postman: фокусировка лазерного пучка\",\n  \"page_start\": 2,\n  \"page_end\": 5,\n  \"author_ids\": [{{author_id}}],\n  \"keywords\": [\"ДОЭ\", \"Дифракция\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Диапазон вне выпуска → 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 422\", () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/articles",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "articles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"issue_id\": {{issue_id}},\n  \"title\": \"Слишком длинная\",\n  \"page_start\": 2,\n  \"page_end\": 500\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Фильтр: автор + ключевое слово",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"статья найдена\", () => pm.expect(pm.response.json().items.map(a => a.id)).to.include(pm.collectionVariables.get(\"article_id\") * 1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/articles?author=Орлова&keyword=доэ",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "articles"
+              ],
+              "query": [
+                {
+                  "key": "author",
+                  "value": "Орлова"
+                },
+                {
+                  "key": "keyword",
+                  "value": "доэ"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Карточка статьи",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/articles/{{article_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "articles",
+                "{{article_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Изменить статью (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/articles/{{article_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "articles",
+                "{{article_id}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"keywords\": [\n    \"доэ\",\n    \"голография\"\n  ],\n  \"page_end\": 6\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Удалить статью (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/articles/{{article_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "articles",
+                "{{article_id}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "OCR",
+      "item": [
+        {
+          "name": "Запустить OCR → 202",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 202\", () => pm.response.to.have.status(202));",
+                  "pm.collectionVariables.set(\"job_id\", pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/issues/{{issue_id}}/ocr",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "issues",
+                "{{issue_id}}",
+                "ocr"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Повторный запуск → 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/issues/{{issue_id}}/ocr",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "issues",
+                "{{issue_id}}",
+                "ocr"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Статус задачи OCR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"queued\", () => pm.expect(pm.response.json().status).to.eql(\"queued\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/ocr-jobs/{{job_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ocr-jobs",
+                "{{job_id}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

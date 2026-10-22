@@ -36,7 +36,8 @@ def main() -> None:
     data = make_pdf(args.pages, int(args.pad_mb * 1024 * 1024))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(data)
-    print(f"{args.output}: {args.pages} стр., {len(data) / 2**20:.1f} МБ")
+    size = f"{len(data) / 2**20:.1f} МБ" if len(data) >= 2**20 else f"{len(data) / 1024:.0f} КБ"
+    print(f"{args.output}: {args.pages} стр., {size}")
 
 
 if __name__ == "__main__":
