@@ -59,5 +59,4 @@ def require_role(role: UserRole) -> Callable[..., Awaitable[User]]:
 require_researcher = require_role(UserRole.RESEARCHER)
 require_admin = require_role(UserRole.ADMIN)
 
-ResearcherUser = Annotated[User, Depends(require_researcher)]
 AdminUser = Annotated[User, Depends(require_admin)]
