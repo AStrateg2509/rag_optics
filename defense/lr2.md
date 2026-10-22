@@ -27,7 +27,9 @@
      -k uvicorn_worker.UvicornWorker -w 2 -b 0.0.0.0:8000 --access-logfile -
    ```
 
-4. **Терминал 2**: один раз выполнить `bash scripts/demo_lr2.sh` для прогрева (на репетиции 1,3 с, 299 строк). Скрипт повторяемый: e-mail и номер выпуска каждый раз новые. Нужен `jq` (`sudo apt install -y jq`).
+   Gunicorn готов за ~0,8 с. Если сразу после (пере)запуска API `http://localhost/api/…` отвечает 502, значит, Docker Desktop ещё не пробросил порт из WSL: подождать 2–3 с.
+4. **Терминал 2**: один раз выполнить `bash scripts/demo_lr2.sh` для прогрева. Нужен `jq` (`sudo apt install -y jq`). Скрипт повторяемый: e-mail и номер выпуска каждый раз новые, созданная статья в конце удаляется.
+   На репетиции: демо — 1,3 с (299 строк, удобно `bash scripts/demo_lr2.sh | less -R`), `uv run pytest -q tests/api` — 5 с, остальные команды показа — меньше 0,2 с. Время уходит только на рассказ.
 5. **Postman**: импортировать `docs/postman/co-rag.postman_collection.json`. Переменная `base_url` = `http://localhost:8000`. В запросе «Загрузить PDF-скан» выбрать файл `data/demo/scan.pdf`. Один раз пройти Run collection.
 6. **Браузер**: вкладки `http://localhost:8000/docs` и `http://localhost/` (статика Nginx).
 7. **VS Code**: вкладки `routers/articles.py` (`create_article`), `services/article_service.py` (`ArticleService.create`), `deps.py` (`get_session`), `auth/dependencies.py` (`get_current_user`, `require_role`), `services/ocr_service.py` (`OcrService.start`). Схема слоёв — раздел 3.2 отчёта `docs/reports/lr2.md` (превью Markdown).
