@@ -3,7 +3,11 @@ name = "co-rag"
 version = "0.1.0"
 description = "CO-RAG: RAG-ассистент по архиву журнала «Компьютерная оптика»"
 requires-python = ">=3.12,<3.13"
-dependencies = ["corag-db"]
+dependencies = [
+    "corag-api",
+    "corag-contracts",
+    "corag-db",
+]
 
 [dependency-groups]
 dev = [
@@ -11,6 +15,7 @@ dev = [
     "pytest-asyncio>=1.4",
     "ruff>=0.16",
     "pymupdf>=1.26",
+    "httpx>=0.28.1",
 ]
 
 [tool.uv]
@@ -21,6 +26,8 @@ members = ["packages/*", "services/*", "tools/*"]
 
 [tool.uv.sources]
 corag-db = { workspace = true }
+corag-api = { workspace = true }
+corag-contracts = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -30,10 +37,12 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["corag_db"]
+known-first-party = ["corag_api", "corag_contracts", "corag_db"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# importlib: одинаковые имена файлов в разных каталогах (tests/db и tests/api) не конфликтуют
+addopts = "--import-mode=importlib"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"

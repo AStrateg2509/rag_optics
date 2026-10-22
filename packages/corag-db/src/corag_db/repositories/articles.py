@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
 
 from corag_db.exceptions import NotFound
@@ -37,6 +37,27 @@ _RELATIONS = (
 class ArticleRepository(BaseRepository[Article]):
     model = Article
 
+    @staticmethod
+    def _conditions(
+        year: int | None, author: str | None, keyword: str | None, issue_id: int | None
+    ) -> list[ColumnElement[bool]]:
+        """Условия фильтров каталога; год проверяется по присоединённой таблице issues."""
+        conds: list[ColumnElement[bool]] = []
+        if year is not None:
+            conds.append(Issue.year == year)
+        if issue_id is not None:
+            conds.append(Article.issue_id == issue_id)
+        if author:
+            # EXISTS по связке: статья не дублируется, если подходят несколько авторов
+            conds.append(
+                Article.authors_assoc.any(
+                    ArticleAuthor.author.has(Author.full_name.ilike(f"%{author.strip()}%"))
+                )
+            )
+        if keyword:
+            conds.append(Article.keywords.any(Keyword.value == normalize_keyword(keyword)))
+        return conds
+
     async def filter(
         self,
         year: int | None = None,
@@ -44,28 +65,34 @@ class ArticleRepository(BaseRepository[Article]):
         keyword: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        issue_id: int | None = None,
     ) -> Sequence[Article]:
-        """Каталог статей с фильтрами по году выпуска, автору (подстрока ФИО) и ключевому слову."""
+        """Каталог статей с фильтрами по году, выпуску, автору (подстрока ФИО), ключевому слову."""
         stmt = (
             select(Article)
             .join(Article.issue)
+            .where(*self._conditions(year, author, keyword, issue_id))
             .options(contains_eager(Article.issue), *_RELATIONS)
-            .order_by(Issue.year.desc(), Issue.number, Article.page_start)
+            .order_by(Issue.year.desc(), Issue.number, Article.page_start, Article.id)
             .limit(limit)
             .offset(offset)
         )
-        if year is not None:
-            stmt = stmt.where(Issue.year == year)
-        if author:
-            # EXISTS по связке: статья не дублируется, если подходят несколько авторов
-            stmt = stmt.where(
-                Article.authors_assoc.any(
-                    ArticleAuthor.author.has(Author.full_name.ilike(f"%{author.strip()}%"))
-                )
-            )
-        if keyword:
-            stmt = stmt.where(Article.keywords.any(Keyword.value == normalize_keyword(keyword)))
         return (await self.session.scalars(stmt)).all()
+
+    async def count_filtered(
+        self,
+        year: int | None = None,
+        author: str | None = None,
+        keyword: str | None = None,
+        issue_id: int | None = None,
+    ) -> int:
+        """Число статей под теми же фильтрами, что и filter (поле total пагинации)."""
+        stmt = (
+            select(func.count(Article.id))
+            .join(Article.issue)
+            .where(*self._conditions(year, author, keyword, issue_id))
+        )
+        return await self.session.scalar(stmt) or 0
 
     async def get_full(self, article_id: int) -> Article:
         """Карточка статьи: выпуск, авторы по порядку, ключевые слова."""
@@ -74,7 +101,9 @@ class ArticleRepository(BaseRepository[Article]):
             .where(Article.id == article_id)
             .options(joinedload(Article.issue), *_RELATIONS)
         )
-        article = await self.session.scalar(stmt)
+        # populate_existing: если статья уже в identity map (только что создана или изменена),
+        # связи перечитываются из БД в порядке order_by, а не остаются в порядке присваивания
+        article = await self.session.scalar(stmt, execution_options={"populate_existing": True})
         if article is None:
             raise NotFound("Article", article_id)
         return article
@@ -105,6 +134,12 @@ class ArticleRepository(BaseRepository[Article]):
         for kw in await KeywordRepository(self.session).get_or_create_many(values):
             if kw not in article.keywords:
                 article.keywords.append(kw)
+        await self.session.flush()
+        return article
+
+    async def set_keywords(self, article: Article, values: Sequence[str]) -> Article:
+        """Заменить набор ключевых слов статьи (недостающие создаются). Статья — из get_full."""
+        article.keywords = await KeywordRepository(self.session).get_or_create_many(values)
         await self.session.flush()
         return article
 

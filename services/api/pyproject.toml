@@ -1,0 +1,25 @@
+[project]
+name = "corag-api"
+version = "0.1.0"
+description = "CO-RAG: API Service (FastAPI) — REST, JWT, бизнес-логика"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "corag-contracts",
+    "corag-db",
+    "fastapi>=0.160.0",
+    "gunicorn>=26.2.0",
+    "pydantic-settings>=2.15.0",
+    "pydantic[email]>=2.14.0",
+    "pymupdf>=1.28.2",
+    "python-multipart>=0.0.32",
+    "uvicorn-worker>=0.4.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+corag-db = { workspace = true }
+corag-contracts = { workspace = true }

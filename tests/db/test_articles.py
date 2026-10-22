@@ -68,3 +68,36 @@ async def test_pages_of_article(session, catalog):
     a1, _, _ = catalog
     pages = await ArticleRepository(session).pages_of(a1)
     assert [p.page_number for p in pages] == [1, 2, 3]
+
+
+async def test_filter_by_issue_and_count(session, catalog, issue):
+    a1, a2, a3 = catalog
+    repo = ArticleRepository(session)
+    assert [a.id for a in await repo.filter(issue_id=issue.id)] == [a1.id, a2.id]
+    assert await repo.count_filtered() == 3
+    assert await repo.count_filtered(issue_id=issue.id) == 2
+    assert await repo.count_filtered(author="иванов", keyword="голография") == 2
+    assert await repo.count_filtered(year=1999) == 0
+
+
+async def test_set_keywords_replaces(session, catalog):
+    a1, _, _ = catalog
+    repo = ArticleRepository(session)
+    article = await repo.get_full(a1.id)
+    await repo.set_keywords(article, ["ДОЭ", " голография "])
+    assert [k.value for k in article.keywords] == ["доэ", "голография"]
+    await repo.set_keywords(article, [])
+    assert article.keywords == []
+
+
+async def test_author_search_count_and_has_articles(session, catalog):
+    authors = AuthorRepository(session)
+    assert await authors.count_search("ИВАНОВ") == 1
+    assert await authors.count_search(None) == 2
+    assert [a.full_name for a in await authors.search(None, limit=1, offset=1)] == [
+        "Петров Пётр Петрович"
+    ]
+    ivanov = (await authors.search("иванов"))[0]
+    assert await authors.has_articles(ivanov.id)
+    lonely = await authors.add(Author(full_name="Без Статей"))
+    assert not await authors.has_articles(lonely.id)

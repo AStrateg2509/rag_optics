@@ -94,3 +94,19 @@ async def test_check_constraint_page_range(session, issue):
 async def test_check_constraint_year(session, user):
     with pytest.raises(IntegrityError, match="ck_issues_year_min"):
         await IssueRepository(session).add(Issue(year=1980, number=1, created_by=user.id))
+
+
+async def test_counts_and_keyword_search(session, user):
+    issues = IssueRepository(session)
+    await issues.add(Issue(year=2010, number=1, created_by=user.id))
+    await issues.add(Issue(year=2010, number=2, created_by=user.id))
+    await issues.add(Issue(year=2011, number=1, created_by=user.id))
+    assert await issues.count() == 3
+    assert await issues.count(year=2010) == 2
+    assert await UserRepository(session).count() == 1
+
+    kws = KeywordRepository(session)
+    await kws.get_or_create_many(["дифракция", "дифракционная оптика", "голография"])
+    assert [k.value for k in await kws.search("ДИФРАКЦ")] == ["дифракционная оптика", "дифракция"]
+    assert await kws.count_search(None) == 3
+    assert (await kws.get_by_value(" Голография ")).value == "голография"

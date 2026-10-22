@@ -250,7 +250,8 @@ async def seed() -> None:
                         year=spec.year,
                         volume=spec.volume,
                         number=spec.number,
-                        scan_path=f"scans/{spec.year}-{spec.number}.pdf",
+                        # путь относительно SCANS_DIR (том scans), как его пишет API
+                        scan_path=f"{spec.year}-{spec.number}.pdf",
                         created_by=admin.id,
                     )
                 )
