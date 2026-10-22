@@ -21,6 +21,10 @@ CHUNK_SIZE = 1024 * 1024  # запись скана на диск порциям
 PDF_SIGNATURE = b"%PDF-"
 
 
+def human_size(size: int) -> str:
+    return f"{size / 2**20:.1f} МБ" if size >= 2**20 else f"{size / 1024:.0f} КБ"
+
+
 def count_pdf_pages(path: str) -> int:
     """Число страниц PDF (PyMuPDF). Битый, зашифрованный или пустой файл → ValidationFailed."""
     try:
@@ -112,10 +116,10 @@ class IssueService:
             issue, scan_path=name, page_count=page_count, status=IssueStatus.UPLOADED
         )
         log.info(
-            "[api] scan issue_id=%d → %s: %.1f МБ, %d стр., статус uploaded",
+            "[api] scan issue_id=%d → %s: %s, %d стр., статус uploaded",
             issue.id,
             target,
-            size / 2**20,
+            human_size(size),
             page_count,
         )
         return issue
