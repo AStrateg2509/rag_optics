@@ -168,5 +168,11 @@ step "17. Карточка выпуска: статус и счётчики"
 req GET "/issues/$ISSUE_ID" "${R_AUTH[@]}"
 expect 200
 
-printf '\n\033[1;32mДемо ЛР2 пройдено: выпуск %s (2026 №%s), статья %s, задача OCR %s\033[0m\n' \
-    "$ISSUE_ID" "$NUMBER" "$ARTICLE_ID" "$JOB_ID"
+step "18. Удаление статьи → 204, затем 404"
+req DELETE "/articles/$ARTICLE_ID" "${A_AUTH[@]}"
+expect 204
+req GET "/articles/$ARTICLE_ID" "${R_AUTH[@]}"
+expect 404
+
+printf '\n\033[1;32mДемо ЛР2 пройдено: выпуск %s (2026 №%s), задача OCR %s\033[0m\n' \
+    "$ISSUE_ID" "$NUMBER" "$JOB_ID"
