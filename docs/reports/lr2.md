@@ -4,7 +4,7 @@
 **Выполнил:** Кравченко Иван Антонович, гр. 6402-010302D
 **Проверил:** Кашапов Артем Ильясович
 **Дата:** 22.10.2026
-**Репозиторий:** <https://github.com/AStrateg2509/rag_optics>, ветка `lr2-rest-api`, PR #<номер>
+**Репозиторий:** <https://github.com/AStrateg2509/rag_optics>, ветка `lr2-rest-api`, PR [#2](https://github.com/AStrateg2509/rag_optics/pull/2)
 
 ## 1. Цель и задание
 
@@ -801,7 +801,7 @@ NGINX_PORT=80
 
 **TODO для автора перед сдачей:**
 
-- [ ] вписать номер PR в шапку после создания PR `lr2-rest-api → main`;
+- [x] вписать номер PR в шапку после создания PR `lr2-rest-api → main`;
 - [ ] установить `jq` (`sudo apt install -y jq`): без него `scripts/demo_lr2.sh` не запустится;
 - [ ] скриншот Swagger UI `http://localhost:8000/docs` с раскрытыми группами → `docs/reports/img/lr2/swagger.png`;
 - [ ] импортировать коллекцию в Postman, выбрать файл `data/demo/scan.pdf` в запросе «Загрузить PDF-скан», пройти Run collection (все тесты зелёные). Скриншот коллекции и ответа на `POST /articles` → `docs/reports/img/lr2/postman.png`;
