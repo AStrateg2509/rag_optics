@@ -6,14 +6,17 @@ from fastapi import APIRouter, Depends, Query, Response, status
 
 from corag_api.auth.dependencies import require_admin, require_researcher
 from corag_api.deps import ArticleServiceDep, PaginationDep
-from corag_api.errors import ErrorOut
+from corag_api.errors import AUTH_RESPONSES, ErrorOut
 from corag_api.schemas.article import ArticleCreate, ArticleDetailOut, ArticleOut, ArticleUpdate
 from corag_api.schemas.common import Paginated
 from corag_api.services.article_service import ArticleFilters
 from corag_db.models import Article
 
 router = APIRouter(
-    prefix="/articles", tags=["articles"], dependencies=[Depends(require_researcher)]
+    prefix="/articles",
+    tags=["articles"],
+    dependencies=[Depends(require_researcher)],
+    responses=AUTH_RESPONSES,
 )
 
 NOT_FOUND = {404: {"model": ErrorOut, "description": "Статья не найдена"}}

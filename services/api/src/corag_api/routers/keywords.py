@@ -6,13 +6,16 @@ from fastapi import APIRouter, Depends, Query, Response, status
 
 from corag_api.auth.dependencies import require_admin, require_researcher
 from corag_api.deps import KeywordServiceDep, PaginationDep
-from corag_api.errors import ErrorOut
+from corag_api.errors import AUTH_RESPONSES, ErrorOut
 from corag_api.schemas.common import Paginated
 from corag_api.schemas.keyword import KeywordCreate, KeywordOut
 from corag_db.models import Keyword
 
 router = APIRouter(
-    prefix="/keywords", tags=["keywords"], dependencies=[Depends(require_researcher)]
+    prefix="/keywords",
+    tags=["keywords"],
+    dependencies=[Depends(require_researcher)],
+    responses=AUTH_RESPONSES,
 )
 
 

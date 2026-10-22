@@ -4,12 +4,12 @@ from fastapi import APIRouter
 
 from corag_api.auth.dependencies import AdminUser, CurrentUser
 from corag_api.deps import PaginationDep, UserServiceDep
-from corag_api.errors import ErrorOut
+from corag_api.errors import AUTH_RESPONSES, ErrorOut
 from corag_api.schemas.common import Paginated
 from corag_api.schemas.user import UserAdminUpdate, UserOut
 from corag_db.models import User
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter(prefix="/users", tags=["users"], responses=AUTH_RESPONSES)
 
 
 @router.get("/me", response_model=UserOut, summary="Текущий пользователь")

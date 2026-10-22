@@ -6,11 +6,15 @@ from fastapi import APIRouter, Depends, Path
 
 from corag_api.auth.dependencies import require_researcher
 from corag_api.deps import IssueServiceDep
-from corag_api.errors import ErrorOut
+from corag_api.errors import AUTH_RESPONSES, ErrorOut
 from corag_api.schemas.page import PageOut
 from corag_db.models import Page
 
-router = APIRouter(tags=["issues"], dependencies=[Depends(require_researcher)])
+router = APIRouter(
+    tags=["issues"],
+    dependencies=[Depends(require_researcher)],
+    responses=AUTH_RESPONSES,
+)
 
 
 @router.get(

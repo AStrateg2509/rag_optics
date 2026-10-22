@@ -6,12 +6,17 @@ from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, statu
 
 from corag_api.auth.dependencies import AdminUser, require_admin, require_researcher
 from corag_api.deps import IssueServiceDep, PaginationDep
-from corag_api.errors import ErrorOut
+from corag_api.errors import AUTH_RESPONSES, ErrorOut
 from corag_api.schemas.common import Paginated
 from corag_api.schemas.issue import IssueCreate, IssueDetailOut, IssueOut, IssueUpdate
 from corag_db.models import Issue
 
-router = APIRouter(prefix="/issues", tags=["issues"], dependencies=[Depends(require_researcher)])
+router = APIRouter(
+    prefix="/issues",
+    tags=["issues"],
+    dependencies=[Depends(require_researcher)],
+    responses=AUTH_RESPONSES,
+)
 
 NOT_FOUND = {404: {"model": ErrorOut, "description": "Выпуск не найден"}}
 

@@ -6,12 +6,17 @@ from fastapi import APIRouter, Depends, Query, Response, status
 
 from corag_api.auth.dependencies import require_admin, require_researcher
 from corag_api.deps import AuthorServiceDep, PaginationDep
-from corag_api.errors import ErrorOut
+from corag_api.errors import AUTH_RESPONSES, ErrorOut
 from corag_api.schemas.author import AuthorCreate, AuthorOut, AuthorUpdate
 from corag_api.schemas.common import Paginated
 from corag_db.models import Author
 
-router = APIRouter(prefix="/authors", tags=["authors"], dependencies=[Depends(require_researcher)])
+router = APIRouter(
+    prefix="/authors",
+    tags=["authors"],
+    dependencies=[Depends(require_researcher)],
+    responses=AUTH_RESPONSES,
+)
 
 NOT_FOUND = {404: {"model": ErrorOut, "description": "Автор не найден"}}
 

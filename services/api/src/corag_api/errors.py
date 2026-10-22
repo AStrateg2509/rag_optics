@@ -39,6 +39,12 @@ class ErrorOut(BaseModel):
     detail: str
 
 
+# Ответы, общие для всех эндпоинтов с авторизацией (для документации /docs)
+AUTH_RESPONSES: dict[int | str, dict] = {
+    401: {"model": ErrorOut, "description": "Нет токена, токен подделан или истёк"},
+    403: {"model": ErrorOut, "description": "Недостаточно прав или пользователь заблокирован"},
+}
+
 STATUS_CODES: dict[type[Exception], int] = {
     AuthFailed: 401,
     Forbidden: 403,

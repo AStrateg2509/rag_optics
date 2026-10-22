@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
 from corag_api.deps import SessionDep
+from corag_api.errors import ErrorOut
 from corag_api.schemas.common import HealthOut
 from corag_db.session import ping
 
@@ -13,7 +14,12 @@ log = logging.getLogger("corag_api")
 router = APIRouter(tags=["service"])
 
 
-@router.get("/health", response_model=HealthOut, summary="Живость сервиса и доступность БД")
+@router.get(
+    "/health",
+    response_model=HealthOut,
+    summary="Живость сервиса и доступность БД",
+    responses={503: {"model": ErrorOut, "description": "БД недоступна"}},
+)
 async def health(session: SessionDep) -> HealthOut:
     try:
         await ping(session)

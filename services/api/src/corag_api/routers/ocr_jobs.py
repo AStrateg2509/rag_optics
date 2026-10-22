@@ -4,11 +4,15 @@ from fastapi import APIRouter, Depends, status
 
 from corag_api.auth.dependencies import AdminUser, require_admin
 from corag_api.deps import OcrServiceDep
-from corag_api.errors import ErrorOut
+from corag_api.errors import AUTH_RESPONSES, ErrorOut
 from corag_api.schemas.ocr_job import OcrJobOut
 from corag_db.models import OcrJob
 
-router = APIRouter(tags=["ocr"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    tags=["ocr"],
+    dependencies=[Depends(require_admin)],
+    responses=AUTH_RESPONSES,
+)
 
 
 @router.post(
