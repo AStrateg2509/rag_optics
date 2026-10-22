@@ -546,6 +546,7 @@ async def create_article(data: ArticleCreate, service: ArticleServiceDep) -> Art
 Листинг А.2 — `services/api/src/corag_api/services/article_service.py` (фрагмент `ArticleService`)
 
 ```python
+class ArticleService:
     async def create(self, data: ArticleCreate) -> Article:
         issue = await self.issues.get(data.issue_id)
         if issue is None:
@@ -700,6 +701,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 Листинг А.7 — `services/api/src/corag_api/services/ocr_service.py` (фрагмент `OcrService.start`, без docstring)
 
 ```python
+class OcrService:
     async def start(self, issue_id: int, user: User) -> OcrJob:
         issue = await self.issues.get_or_raise(issue_id)
         if issue.status not in STARTABLE:
