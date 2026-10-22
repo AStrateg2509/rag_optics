@@ -101,7 +101,9 @@ class ArticleRepository(BaseRepository[Article]):
             .where(Article.id == article_id)
             .options(joinedload(Article.issue), *_RELATIONS)
         )
-        article = await self.session.scalar(stmt)
+        # populate_existing: если статья уже в identity map (только что создана или изменена),
+        # связи перечитываются из БД в порядке order_by, а не остаются в порядке присваивания
+        article = await self.session.scalar(stmt, execution_options={"populate_existing": True})
         if article is None:
             raise NotFound("Article", article_id)
         return article
