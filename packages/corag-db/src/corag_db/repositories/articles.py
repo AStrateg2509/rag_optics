@@ -154,3 +154,18 @@ class ArticleRepository(BaseRepository[Article]):
             .order_by(Page.page_number)
         )
         return (await self.session.scalars(stmt)).all()
+
+    async def author_names(self, article_ids: Sequence[int]) -> dict[int, list[str]]:
+        """ФИО авторов нескольких статей одним запросом (для источников RAG), по author_order."""
+        if not article_ids:
+            return {}
+        stmt = (
+            select(ArticleAuthor.article_id, Author.full_name)
+            .join(Author, Author.id == ArticleAuthor.author_id)
+            .where(ArticleAuthor.article_id.in_(set(article_ids)))
+            .order_by(ArticleAuthor.article_id, ArticleAuthor.author_order)
+        )
+        names: dict[int, list[str]] = {}
+        for article_id, full_name in await self.session.execute(stmt):
+            names.setdefault(article_id, []).append(full_name)
+        return names

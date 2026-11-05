@@ -101,3 +101,15 @@ async def test_author_search_count_and_has_articles(session, catalog):
     assert await authors.has_articles(ivanov.id)
     lonely = await authors.add(Author(full_name="Без Статей"))
     assert not await authors.has_articles(lonely.id)
+
+
+async def test_author_names_ordered_in_one_query(session, catalog):
+    """Авторы статей для источников RAG: по author_order, статьи без авторов отсутствуют."""
+    a1, a2, a3 = catalog
+    names = await ArticleRepository(session).author_names([a1.id, a2.id, a3.id, a1.id])
+    assert names == {
+        a1.id: ["Иванов Иван Иванович", "Петров Пётр Петрович"],
+        a2.id: ["Петров Пётр Петрович"],
+        a3.id: ["Иванов Иван Иванович"],
+    }
+    assert await ArticleRepository(session).author_names([]) == {}
