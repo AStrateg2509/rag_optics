@@ -71,7 +71,8 @@ class OpenAICompatibleClient:
         try:
             resp = await self._http.get("models", timeout=5)
             resp.raise_for_status()
-            models = {m["id"] for m in resp.json().get("data", [])}
+            # Ollama без скачанных моделей отвечает "data": null
+            models = {m["id"] for m in resp.json().get("data") or []}
         except (httpx.HTTPError, ValueError) as exc:
             log.warning(
                 "[rag] LLM-сервер %s недоступен: %s — Ask вернёт UNAVAILABLE", self.base_url, exc
