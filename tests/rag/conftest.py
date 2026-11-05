@@ -50,22 +50,25 @@ class FakeEmbedder:
 
 
 class FakeLLM:
-    """Запоминает вызовы; по флагу имитирует недоступность или таймаут LLM."""
+    """Запоминает вызовы; fail = класс исключения, которое бросить (LLMUnavailable, LLMTimeout…)."""
 
     model = "fake-llm"
 
     def __init__(self) -> None:
         self.calls: list[list[dict]] = []
+        self.timeouts: list[float] = []
         self.fail: type[Exception] | None = None
         self.answer = "Ответ по фрагментам [1]."
 
     async def chat(self, messages: list[dict], timeout_s: float) -> str:
         self.calls.append(messages)
-        if self.fail is LLMUnavailable:
-            raise LLMUnavailable("LLM-сервер недоступен (тест)")
-        if self.fail is LLMTimeout:
-            raise LLMTimeout("LLM не ответила (тест)")
+        self.timeouts.append(timeout_s)
+        if self.fail is not None:
+            raise self.fail(f"{self.fail.__name__} (тест)")
         return self.answer
+
+
+__all__ = ["FakeEmbedder", "FakeLLM", "LLMTimeout", "LLMUnavailable", "WhitespaceTokens"]
 
 
 @pytest.fixture
