@@ -25,6 +25,11 @@ class ApiSettings(BaseSettings):
     # Префикс, под которым API опубликован за reverse proxy (за Nginx — /api)
     API_ROOT_PATH: str = ""
     LOG_LEVEL: str = "INFO"
+    # RAG Service (gRPC): адрес и deadline вызовов, секунды
+    RAG_ADDR: str = "localhost:50051"
+    RAG_ASK_TIMEOUT_S: float = Field(120, gt=0)
+    RAG_SEARCH_TIMEOUT_S: float = Field(15, gt=0)
+    RAG_INDEX_TIMEOUT_S: float = Field(1800, gt=0)
 
     @property
     def max_scan_bytes(self) -> int:

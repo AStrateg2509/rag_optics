@@ -1,4 +1,4 @@
-"""Внедрение зависимостей (Depends): сессия, репозитории, сервисы, публикатор."""
+"""Внедрение зависимостей (Depends): сессия, репозитории, сервисы, публикатор, клиент RAG."""
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -14,8 +14,10 @@ from corag_api.services.author_service import AuthorService
 from corag_api.services.issue_service import IssueService
 from corag_api.services.keyword_service import KeywordService
 from corag_api.services.ocr_service import OcrService
+from corag_api.services.rag_service import RagService
 from corag_api.services.user_service import UserService
 from corag_api.settings import ApiSettings, get_settings
+from corag_contracts.rag_client import RagClient
 from corag_db.repositories import (
     ArticleRepository,
     AuthorRepository,
@@ -111,6 +113,16 @@ def get_publisher(request: Request) -> JobPublisher:
 PublisherDep = Annotated[JobPublisher, Depends(get_publisher)]
 
 
+# --- Клиент RAG Service: один gRPC-канал на процесс, создаётся в lifespan; в тестах — двойник ---
+
+
+def get_rag_client(request: Request) -> RagClient:
+    return request.app.state.rag_client
+
+
+RagClientDep = Annotated[RagClient, Depends(get_rag_client)]
+
+
 # --- Сервисы ---
 
 
@@ -146,6 +158,10 @@ def get_ocr_service(
     return OcrService(session, issues, jobs, publisher)
 
 
+def get_rag_service(client: RagClientDep) -> RagService:
+    return RagService(client)
+
+
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 IssueServiceDep = Annotated[IssueService, Depends(get_issue_service)]
@@ -153,3 +169,4 @@ ArticleServiceDep = Annotated[ArticleService, Depends(get_article_service)]
 AuthorServiceDep = Annotated[AuthorService, Depends(get_author_service)]
 KeywordServiceDep = Annotated[KeywordService, Depends(get_keyword_service)]
 OcrServiceDep = Annotated[OcrService, Depends(get_ocr_service)]
+RagServiceDep = Annotated[RagService, Depends(get_rag_service)]

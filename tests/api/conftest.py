@@ -10,10 +10,11 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from corag_api.deps import get_publisher, get_session
+from corag_api.deps import get_publisher, get_rag_client, get_session
 from corag_api.main import create_app
 from corag_api.settings import ApiSettings, get_settings
 from corag_contracts.events import OcrJobMessage
+from corag_contracts.rag_client import AskResult, Citation, IndexResult, RagError
 from corag_db.enums import UserRole
 from corag_db.repositories import UserRepository
 
@@ -47,6 +48,48 @@ class RecordingPublisher:
         self.events.append("publish")
 
 
+CITATION = Citation(
+    chunk_id=11,
+    article_id=3,
+    article_title="Фокусировка в кольцо",
+    authors=["Сойфер В. А.", "Котляр В. В."],
+    issue_id=1,
+    year=1998,
+    issue_number=1,
+    page_number=2,
+    snippet="Дифракционный оптический элемент фокусирует…",
+    score=0.71,
+)
+
+
+class FakeRagClient:
+    """Двойник RagClient: запоминает вызовы; error — исключение RagError, которое бросить."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+        self.error: RagError | None = None
+        self.ask_result = AskResult(
+            answer="ДОЭ фокусирует свет в кольцо [1].", found=True, citations=[CITATION]
+        )
+
+    def _call(self, *args) -> None:
+        self.calls.append(args)
+        if self.error is not None:
+            raise self.error
+
+    async def ask(self, question, *, top_k=None, year_from=None, year_to=None) -> AskResult:
+        self._call("ask", question, top_k, year_from, year_to)
+        return self.ask_result
+
+    async def search(self, query, *, top_k=None, year_from=None, year_to=None) -> list[Citation]:
+        self._call("search", query, top_k, year_from, year_to)
+        return [CITATION]
+
+    async def index_issue(self, issue_id: int) -> IndexResult:
+        self._call("index_issue", issue_id)
+        return IndexResult(issue_id=issue_id, pages_indexed=7, chunks_indexed=9)
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> ApiSettings:
     return ApiSettings(SCANS_DIR=tmp_path / "scans", MAX_SCAN_MB=1, JWT_SECRET=TEST_SECRET)
@@ -58,8 +101,13 @@ def publisher() -> RecordingPublisher:
 
 
 @pytest.fixture
+def rag() -> FakeRagClient:
+    return FakeRagClient()
+
+
+@pytest.fixture
 async def client(
-    session: AsyncSession, settings: ApiSettings, publisher: RecordingPublisher
+    session: AsyncSession, settings: ApiSettings, publisher: RecordingPublisher, rag: FakeRagClient
 ) -> AsyncIterator[AsyncClient]:
     """HTTP-клиент к приложению в памяти (без сети и без lifespan)."""
     app = create_app()
@@ -79,6 +127,7 @@ async def client(
     app.dependency_overrides[get_session] = test_session
     app.dependency_overrides[get_settings] = lambda: settings
     app.dependency_overrides[get_publisher] = lambda: publisher
+    app.dependency_overrides[get_rag_client] = lambda: rag
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
 

@@ -21,9 +21,11 @@ from corag_api.routers import (
     keywords,
     ocr_jobs,
     pages,
+    rag,
     users,
 )
 from corag_api.settings import get_settings
+from corag_contracts.rag_client import RagClient
 from corag_db.session import create_engine, create_sessionmaker
 
 log = logging.getLogger("corag_api")
@@ -36,21 +38,34 @@ TAGS = [
     {"name": "authors", "description": "Авторы"},
     {"name": "keywords", "description": "Ключевые слова"},
     {"name": "ocr", "description": "Запуск распознавания и статус задач — admin"},
+    {"name": "rag", "description": "Вопросы к архиву: ответ LLM с источниками (RAG Service, gRPC)"},
     {"name": "service", "description": "Служебные эндпоинты"},
 ]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Пул соединений с БД живёт столько же, сколько процесс (воркер Gunicorn)."""
+    """Пул соединений с БД и gRPC-канал к RAG Service живут столько же, сколько процесс."""
     settings = get_settings()
     engine = create_engine(settings.DATABASE_URL)
     app.state.engine = engine
     app.state.sessionmaker = create_sessionmaker(engine)
-    log.info("[api] старт: БД %s", engine.url.render_as_string(hide_password=True))
+    # Один канал на процесс: HTTP/2-соединение переиспользуется всеми запросами
+    app.state.rag_client = RagClient(
+        settings.RAG_ADDR,
+        ask_timeout_s=settings.RAG_ASK_TIMEOUT_S,
+        search_timeout_s=settings.RAG_SEARCH_TIMEOUT_S,
+        index_timeout_s=settings.RAG_INDEX_TIMEOUT_S,
+    )
+    log.info(
+        "[api] старт: БД %s, RAG Service %s (gRPC)",
+        engine.url.render_as_string(hide_password=True),
+        settings.RAG_ADDR,
+    )
     yield
+    await app.state.rag_client.close()
     await engine.dispose()
-    log.info("[api] остановка: пул соединений закрыт")
+    log.info("[api] остановка: gRPC-канал и пул соединений закрыты")
 
 
 def create_app() -> FastAPI:
@@ -60,14 +75,15 @@ def create_app() -> FastAPI:
     )
     app = FastAPI(
         title="CO-RAG API",
-        version="0.2.0",
+        version="0.3.0",
         description="REST API архива журнала «Компьютерная оптика»",
         lifespan=lifespan,
         root_path=settings.API_ROOT_PATH,
         openapi_tags=TAGS,
     )
     register_exception_handlers(app)
-    for module in (auth, users, issues, pages, articles, authors, keywords, ocr_jobs, health):
+    routers = (auth, users, issues, pages, articles, authors, keywords, ocr_jobs, rag, health)
+    for module in routers:
         app.include_router(module.router)
     # Заглушка брокера; в ЛР4 здесь будет AmqpPublisher
     app.state.publisher = LoggingPublisher()

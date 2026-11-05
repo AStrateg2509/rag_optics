@@ -1,14 +1,15 @@
-"""Выпуски журнала: каталог, карточка, CRUD и загрузка PDF-скана."""
+"""Выпуски журнала: каталог, карточка, CRUD, загрузка PDF-скана и переиндексация."""
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
 
 from corag_api.auth.dependencies import AdminUser, require_admin, require_researcher
-from corag_api.deps import IssueServiceDep, PaginationDep
-from corag_api.errors import AUTH_RESPONSES, ErrorOut
+from corag_api.deps import IssueServiceDep, PaginationDep, RagServiceDep
+from corag_api.errors import AUTH_RESPONSES, RAG_RESPONSES, ErrorOut
 from corag_api.schemas.common import Paginated
 from corag_api.schemas.issue import IssueCreate, IssueDetailOut, IssueOut, IssueUpdate
+from corag_api.schemas.rag import IndexOut
 from corag_db.models import Issue
 
 router = APIRouter(
@@ -93,3 +94,23 @@ async def upload_scan(
     file: Annotated[UploadFile, File(description="PDF-скан выпуска")],
 ) -> Issue:
     return await service.upload_scan(issue_id, file)
+
+
+@router.post(
+    "/{issue_id}/reindex",
+    response_model=IndexOut,
+    summary="Переиндексировать выпуск: чанки и эмбеддинги Jina (admin, служебный)",
+    dependencies=[Depends(require_admin)],
+    responses={
+        **NOT_FOUND,
+        409: {"model": ErrorOut, "description": "У страниц выпуска нет текста"},
+        **RAG_RESPONSES,
+    },
+)
+async def reindex_issue(issue_id: int, rag: RagServiceDep) -> IndexOut:
+    """Вызывает gRPC IndexIssue: старые чанки страниц заменяются новыми, статус → indexed.
+
+    Временный служебный эндпоинт ЛР3: до OCR Worker (ЛР4) индексирует сид-данные
+    настоящими эмбеддингами. Повторный вызов не создаёт дублей.
+    """
+    return IndexOut.model_validate(await rag.reindex(issue_id), from_attributes=True)

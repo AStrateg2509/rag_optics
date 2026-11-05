@@ -33,6 +33,18 @@ class PayloadTooLarge(Exception):
     """Загружаемый файл больше допустимого → 413."""
 
 
+class BadGateway(Exception):
+    """Смежный сервис (RAG Service) ответил ошибкой → 502."""
+
+
+class ServiceUnavailable(Exception):
+    """Смежный сервис (RAG Service или LLM) недоступен → 503."""
+
+
+class UpstreamTimeout(Exception):
+    """Смежный сервис не ответил до deadline → 504."""
+
+
 class ErrorOut(BaseModel):
     """Тело ответа с ошибкой (для документации OpenAPI)."""
 
@@ -45,6 +57,13 @@ AUTH_RESPONSES: dict[int | str, dict] = {
     403: {"model": ErrorOut, "description": "Недостаточно прав или пользователь заблокирован"},
 }
 
+# Ответы эндпоинтов, которые вызывают RAG Service по gRPC (перевод статусов — RagService)
+RAG_RESPONSES: dict[int | str, dict] = {
+    502: {"model": ErrorOut, "description": "RAG Service ответил внутренней ошибкой"},
+    503: {"model": ErrorOut, "description": "RAG Service или LLM недоступны (gRPC UNAVAILABLE)"},
+    504: {"model": ErrorOut, "description": "Нет ответа до deadline (gRPC DEADLINE_EXCEEDED)"},
+}
+
 STATUS_CODES: dict[type[Exception], int] = {
     AuthFailed: 401,
     Forbidden: 403,
@@ -52,6 +71,9 @@ STATUS_CODES: dict[type[Exception], int] = {
     Conflict: 409,
     PayloadTooLarge: 413,
     ValidationFailed: 422,
+    BadGateway: 502,
+    ServiceUnavailable: 503,
+    UpstreamTimeout: 504,
 }
 
 
