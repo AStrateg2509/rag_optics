@@ -7,6 +7,7 @@ dependencies = [
     "corag-api",
     "corag-contracts",
     "corag-db",
+    "corag-rag",
 ]
 
 [dependency-groups]
@@ -16,6 +17,7 @@ dev = [
     "ruff>=0.16",
     "pymupdf>=1.26",
     "httpx>=0.28.1",
+    "grpcio-tools>=1.85.1",
 ]
 
 [tool.uv]
@@ -28,21 +30,26 @@ members = ["packages/*", "services/*", "tools/*"]
 corag-db = { workspace = true }
 corag-api = { workspace = true }
 corag-contracts = { workspace = true }
+corag-rag = { workspace = true }
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Сгенерированный protobuf/gRPC-код (scripts/gen_proto.sh) не проверяем и не форматируем
+extend-exclude = ["packages/corag-contracts/src/corag_contracts/rag/v1"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["corag_api", "corag_contracts", "corag_db"]
+known-first-party = ["corag_api", "corag_contracts", "corag_db", "corag_rag"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# importlib: одинаковые имена файлов в разных каталогах (tests/db и tests/api) не конфликтуют
-addopts = "--import-mode=importlib"
+# importlib: одинаковые имена файлов в разных каталогах (tests/db и tests/api) не конфликтуют.
+# Тесты с настоящими моделями (slow) по умолчанию пропускаются: uv run pytest -m slow
+addopts = "--import-mode=importlib -m 'not slow'"
+markers = ["slow: тест с настоящей моделью (скачивание весов, минуты на CPU)"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
