@@ -2,7 +2,7 @@
 
 ## Тезисы
 
-1. **3 unary-метода** `corag.rag.v1.RagService`: `Ask`, `Search`, `IndexIssue`. Контракт — `rag.proto`, код — `scripts/gen_proto.sh`.
+1. `corag.rag.v1.RagService`: **unary** `Ask`, `Search`, `IndexIssue` и **server streaming** `AskStream` (источники, затем текст LLM частями). Контракт — `rag.proto`, код — `scripts/gen_proto.sh`.
 2. **Protobuf**: в байтах только номер поля и wire type (`issue_id=12` → `08 0c`). Новые поля получают новые номера: `Citation.issue_id = 9`, `authors = 10`.
 3. **Deadline**: Ask 120 с, Search 15 с, IndexIssue 30 мин; LLM ждём не дольше остатка deadline.
 4. **Статусы → HTTP**: `INVALID_ARGUMENT` 422, `NOT_FOUND` 404, `FAILED_PRECONDITION` 409, `UNAVAILABLE` 503, `DEADLINE_EXCEEDED` 504, прочие 502.
@@ -27,6 +27,7 @@ curl -s -X POST localhost:8000/rag/ask -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"question": "Что такое топологический заряд?"}' | jq
 grpcurl -plaintext localhost:50051 list                               # reflection
 grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check        # SERVING
+uv run --package corag-api python scripts/ask_stream.py "Что такое топологический заряд?"  # AskStream
 uv run pytest -q && uv run pytest -q -m slow tests/rag && uv run ruff check .
 ```
 
@@ -36,14 +37,14 @@ uv run pytest -q && uv run pytest -q -m slow tests/rag && uv run ruff check .
 | --- | --- | --- |
 | Контракт | `proto/rag/v1/rag.proto` | `RagService`, `Citation` |
 | gRPC-сервер, health, reflection | `services/rag/src/corag_rag/server.py` | `serve` |
-| Методы, исключения → статусы | `services/rag/…/servicer.py` | `RagServicer.Ask`, `rpc` |
+| Методы, исключения → статусы | `services/rag/…/servicer.py` | `RagServicer.Ask`, `AskStream`, `rpc`, `rpc_stream` |
 | Эмбеддинги | `services/rag/…/embedder.py` | `JinaEmbedder.load`, `_embed` |
 | Чанкинг | `services/rag/…/chunker.py` | `MarkdownChunker.split` |
 | Поиск, порог | `services/rag/…/retriever.py` | `Retriever.search` |
 | Промпт | `services/rag/…/prompts.py` | `build_messages`, `NOT_FOUND_ANSWER` |
-| LLM | `services/rag/…/llm.py` | `OpenAICompatibleClient.chat` |
+| LLM (целиком и потоком SSE) | `services/rag/…/llm.py` | `OpenAICompatibleClient.chat`, `chat_stream` |
 | Индексация | `services/rag/…/indexer.py` | `Indexer.index_issue` |
-| Клиент, deadline, ошибки | `packages/corag-contracts/…/rag_client.py` | `RagClient`, `map_rpc_error` |
+| Клиент, deadline, ошибки | `packages/corag-contracts/…/rag_client.py` | `RagClient`, `ask_stream`, `map_rpc_error` |
 | gRPC → HTTP | `services/api/…/services/rag_service.py` | `RagService._call`, `_translate` |
 | REST | `services/api/…/routers/rag.py`, `routers/issues.py` | `ask`, `search`, `reindex_issue` |
 

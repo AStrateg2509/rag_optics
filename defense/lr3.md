@@ -1,9 +1,10 @@
 # ЛР3. Сервисное взаимодействие через gRPC (RAG Service) — подготовка к сдаче
 
-Ветка `lr3-grpc-rag`. RAG Service (`services/rag`) — отдельный процесс с gRPC-интерфейсом `corag.rag.v1.RagService`: `Ask`, `Search`, `IndexIssue`.
+Ветка `lr3-grpc-rag`. RAG Service (`services/rag`) — отдельный процесс с gRPC-интерфейсом `corag.rag.v1.RagService`: unary `Ask`, `Search`, `IndexIssue` и server streaming `AskStream`.
 Внутри: эмбеддинги jina-embeddings-v3 на CPU, поиск в pgvector, ответ локальной LLM в Ollama на GPU.
 API Service вызывает его через `RagClient` (`corag-contracts`) из `POST /rag/ask`, `POST /rag/search` и служебного `POST /issues/{id}/reindex`.
-Тесты: 137 (134 по умолчанию и 3 slow с настоящей Jina); демо — `scripts/demo_lr3.sh`.
+Тесты: 148 (145 по умолчанию и 3 slow с настоящей Jina); демо — `scripts/demo_lr3.sh`, поток — `scripts/ask_stream.py`.
+Дополнительные вопросы с защит (ИИ, Postman, виды серверов, streaming, типы и лимиты, замыкания) — `defense/lr3-qa.md`.
 
 ## 1. Сценарий сдачи (5–7 мин)
 
@@ -50,7 +51,7 @@ API Service вызывает его через `RagClient` (`corag-contracts`) �
 | Время | Говорю | Показываю (окно / команда) |
 | --- | --- | --- |
 | 0:00–0:40 | RAG вынесен в отдельный процесс. Он держит тяжёлые модели: Jina грузится 5 с, LLM в Ollama — на GPU. API остаётся лёгким и быстро стартует. RAG масштабируется отдельно, а `IndexIssue` вызывает ещё и OCR Worker (ЛР4). Внутри системы — gRPC (бинарный Protobuf, HTTP/2, deadline), наружу — REST | Рис. 1 отчёта (компоненты) |
-| 0:40–1:40 | Контракт — `rag.proto`: 3 unary-метода, номера полей. Поля 9 и 10 в `Citation` — обратно совместимое расширение черновика ТЗ. `gen_proto.sh` → `rag_pb2.py` (сообщения), `rag_pb2_grpc.py` (stub и servicer), `.pyi`; `sed` чинит абсолютный импорт. Генерация воспроизводима | VS Code: `rag.proto`, `gen_proto.sh`; терминал 3: `bash scripts/gen_proto.sh && git status --short` (пусто) |
+| 0:40–1:40 | Контракт — `rag.proto`: 3 unary-метода и server streaming `AskStream`, номера полей. Поля 9 и 10 в `Citation` — обратно совместимое расширение черновика ТЗ. `gen_proto.sh` → `rag_pb2.py` (сообщения), `rag_pb2_grpc.py` (stub и servicer), `.pyi`; `sed` чинит абсолютный импорт. Генерация воспроизводима | VS Code: `rag.proto`, `gen_proto.sh`; терминал 3: `bash scripts/gen_proto.sh && git status --short` (пусто) |
 | 1:40–4:20 | Путь запроса. `/rag/ask`: справа `[api] → gRPC Ask`, слева `[rag] ← Ask` → `retrieved 3 chunks (best 0.81)` → `→ LLM` → `← LLM … токены` → `AskResponse 3 citations`, справа `← gRPC Ask`. В JSON — ответ с [1] и источники: статья, авторы, выпуск, страница, score. Вопрос вне архива: best 0.08 < `MIN_SCORE` 0.35 → `found=false`, LLM не вызывается. Ctrl+C в терминале 1: NOT_SERVING → остановлен; `--expect-down` → **503**. Перезапуск: сервер готов через ~9 с, канал API переподключается ещё за ≤ 6 с — снова 200 | Терминал 3: `bash scripts/demo_lr3.sh` (шаги 5–8), затем `bash scripts/demo_lr3.sh --expect-down`; терминалы 1–2 — логи |
 | 4:20–5:20 | Код. Декоратор `rpc` переводит доменные исключения в статусы gRPC. `RagClient`: один канал на процесс, deadline (Ask 120 с), `AioRpcError` → `RagError`. `RagService._translate` → 422/404/409/503/504. Модель вызывается через `asyncio.to_thread`, чтобы не блокировать event loop. Reflection: `grpcurl` видит методы без `.proto` | VS Code: `servicer.py`, `rag_client.py`; терминал 3: `grpcurl -plaintext localhost:50051 list` и `describe corag.rag.v1.RagService` |
 | 5:20–7:00 | Резерв на вопросы | — |
@@ -86,8 +87,8 @@ HTTP/2 (RFC 9113) передаёт данные **двоичными фрейм�
 
 **4 типа вызовов:**
 
-- unary — запрос → ответ (все три метода CO-RAG);
-- server streaming — запрос → поток ответов (например, ответ LLM по токенам);
+- unary — запрос → ответ (`Ask`, `Search`, `IndexIssue`);
+- server streaming — запрос → поток ответов (`AskStream`: сначала источники, затем ответ LLM частями);
 - client streaming — поток запросов → ответ (загрузка частями);
 - bidirectional streaming — два независимых потока (чат).
 
@@ -185,7 +186,7 @@ JSON того же: {"question": "ДОЭ", "top_k": 5}                          
    В байты попадает номер поля и wire type, а не имя: `IndexIssueRequest(issue_id=12)` — это `08 0c`. Номера нельзя менять и переиспользовать, удалённые помечают `reserved`. Новые поля добавляют с новыми номерами, а старые клиенты их пропускают. Так в `Citation` добавлены `issue_id = 9` и `authors = 10` (`proto/rag/v1/rag.proto`).
 
 4. **Какие бывают типы вызовов gRPC? Какой у вас?**
-   Unary, server streaming, client streaming и bidirectional streaming. В CO-RAG все три метода unary: вопрос → полный ответ, выпуск → итог индексации. Стриминг токенов LLM (server streaming) — возможное развитие.
+   Unary, server streaming, client streaming и bidirectional streaming. `Ask`, `Search` и `IndexIssue` — unary: вопрос → полный ответ, выпуск → итог индексации. `AskStream` — server streaming: первым сообщением источники, затем текст LLM по мере генерации (`RagServicer.AskStream` — async-генератор, `RagClient.ask_stream` — `async for`). Источники видны через 1,8 с, первые слова — через 2,2 с, а весь ответ unary `Ask` отдал бы только через ~3 с.
 
 5. **Что такое deadline и что будет, если он истёк?**
    Это срок, до которого клиент ждёт ответа. Он передаётся серверу в `grpc-timeout`, и по истечении клиент получает `DEADLINE_EXCEEDED`, а вызов на сервере отменяется. У нас Ask — 120 с, Search — 15 с, IndexIssue — 30 мин (`RagClient`). `RagServicer._llm_timeout` не ждёт LLM дольше остатка deadline, а API отвечает 504.

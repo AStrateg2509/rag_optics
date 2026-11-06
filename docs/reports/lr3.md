@@ -26,7 +26,7 @@
 
 **gRPC** работает только поверх **HTTP/2**. Данные идут двоичными фреймами, каждый вызов — отдельный поток (stream), и потоки мультиплексируются в одном TCP-соединении. Поэтому клиент держит один канал на процесс. Запрос — это HEADERS (`:path /corag.rag.v1.RagService/Ask`, `grpc-timeout`) и DATA с сообщением Protobuf, статус приходит в trailers (`grpc-status`). Контракт описывается в `.proto`, `protoc` генерирует классы сообщений, клиентский stub и базовый класс сервера.
 
-Типы вызовов: unary, server streaming, client streaming и bidirectional. Все три метода CO-RAG — unary.
+Типы вызовов: unary, server streaming, client streaming и bidirectional. `Ask`, `Search` и `IndexIssue` — unary: один запрос, один ответ. `AskStream` — server streaming: сервер шлёт поток сообщений (сначала источники, затем текст LLM по частям), конец потока — trailers со статусом.
 
 **Deadline** — срок ответа, который клиент передаёт серверу. По истечении вызов отменяется со статусом `DEADLINE_EXCEEDED`. Ошибки передаются **статусами** (`INVALID_ARGUMENT`, `NOT_FOUND`, `UNAVAILABLE`…), и API переводит их в коды HTTP.
 
@@ -42,7 +42,7 @@
 
 | Пункт задания | Как реализовано в CO-RAG | Где в коде |
 | --- | --- | --- |
-| Собственный gRPC-интерфейс | `corag.rag.v1.RagService`: `Ask`, `Search`, `IndexIssue`; асинхронный сервер `grpc.aio` + health checking + reflection | `services/rag/src/corag_rag/server.py` → `serve`, `servicer.py` → `RagServicer` |
+| Собственный gRPC-интерфейс | `corag.rag.v1.RagService`: unary `Ask`, `Search`, `IndexIssue` и server streaming `AskStream`; асинхронный сервер `grpc.aio` + health checking + reflection | `services/rag/src/corag_rag/server.py` → `serve`, `servicer.py` → `RagServicer` |
 | Интерфейс в `.proto` | Черновик из приложения А ТЗ + поля `Citation.issue_id = 9`, `authors = 10`; генерация `grpc_tools.protoc` с исправлением импорта | `proto/rag/v1/rag.proto`, `scripts/gen_proto.sh`, `packages/corag-contracts/src/corag_contracts/rag/v1/` |
 | Приём запросов от API Service | `RagClient`: один канал `grpc.aio` на процесс (создаётся в `lifespan`), deadline, protobuf → Pydantic, статусы → исключения | `packages/corag-contracts/src/corag_contracts/rag_client.py` → `RagClient`; `services/api/src/corag_api/main.py` → `lifespan` |
 | Результат вычислений через gRPC | Эмбеддинг Jina → pgvector → порог → LLM (Ollama) → ответ с `citations`; индексация страниц выпуска | `retriever.py` → `Retriever.search`, `llm.py` → `OpenAICompatibleClient`, `indexer.py` → `Indexer.index_issue` |
@@ -56,6 +56,7 @@
 | Метод | Назначение | Где вызывается |
 | --- | --- | --- |
 | `Ask(AskRequest) → AskResponse` | Ответ LLM по найденным фрагментам с источниками; `found=false` без вызова LLM, если ничего не прошло порог | API: `POST /rag/ask` (`RagService.ask`) |
+| `AskStream(AskRequest) → stream AskStreamResponse` | То же, что `Ask`, но потоком: первым сообщением `sources` (источники или `found=false`), затем `delta` — части ответа LLM по мере генерации | `RagClient.ask_stream`; `scripts/ask_stream.py`, grpcurl, Postman (REST-эндпоинта нет) |
 | `Search(SearchRequest) → SearchResponse` | Только поиск: top-k фрагментов с источниками, без генерации | API: `POST /rag/search` (`RagService.search`) |
 | `IndexIssue(IndexIssueRequest) → IndexIssueResponse` | Чанкинг страниц выпуска, эмбеддинги, замена чанков, статус `indexed` (идемпотентно) | API: `POST /issues/{id}/reindex` (до ЛР4); OCR Worker после распознавания (ЛР4, `RagClient.index_issue`) |
 
@@ -167,6 +168,7 @@ sequenceDiagram
 - **Контекст Ollama.** Через OpenAI-совместимый `/v1` нельзя передать `num_ctx`. Ollama 0.40.8 по умолчанию берёт контекст от объёма VRAM (в логе `default_num_ctx=4096`), и промпт из 5 фрагментов по 512 токенов плюс инструкция мог бы молча обрезаться. Поэтому в `docker-compose.dev.yml` задано `OLLAMA_CONTEXT_LENGTH=8192`.
 - **Транзакции индексации.** Страницы читаются в короткой транзакции. Чанкинг и эмбеддинги (на CPU — минуты для настоящего выпуска) идут вне транзакции, затем в одной транзакции `ChunkRepository.replace_for_pages` и статус `indexed`. Повторный вызов даёт тот же результат (демо: 6 → 6 чанков, тест `test_index_issue_is_idempotent`). Параллельная индексация одного выпуска исключена блокировкой на выпуск.
 - **Расширение контракта** (согласовано). СЦ-1 ТЗ требует авторов в источниках, а для перехода к странице (`GET /issues/{id}/pages/{n}`) нужен `issue_id`. Обоих полей нет в черновике `Citation`, поэтому добавлены `int64 issue_id = 9` и `repeated string authors = 10`. Это обратно совместимое изменение: номера новые. Авторы берутся одним запросом `ArticleRepository.author_names`, без N+1. Дубли чанков на странице, общей для двух статей (LEFT JOIN), убираются в `Retriever`.
+- **Server streaming `AskStream`** (расширение ТЗ, согласовано). Ответ LLM приходит частями: Ollama отдаёт `/v1/chat/completions` со `stream: true` как Server-Sent Events, `OpenAICompatibleClient.chat_stream` разбирает строки `data: …` и отдаёт части. `RagServicer.AskStream` — async-генератор: первым `yield` уходят источники (сразу после поиска), затем `delta`. Ошибки переводит декоратор `rpc_stream`. Если ошибка случилась посреди потока, клиент уже получил источники, а статус ошибки придёт в trailers. Пользователь видит источники через 1,8 с и первые слова через 2,2 с, а не весь ответ через ~3 с. Контракт расширен обратно совместимо (новый rpc и новые сообщения). REST-эндпоинт для потока не делался: поток проверяется через `RagClient.ask_stream` (`scripts/ask_stream.py`), grpcurl и Postman.
 - **Версии библиотек.** `torch==2.6.0` и `transformers==4.46.3` совпадают с требованиями DeepSeek-OCR: в ЛР4 общий `uv.lock` workspace разрешится без конфликта. Jina v3 на этих версиях проверена. `grpcio` 1.85.1, `protobuf` 7.36.
 - **Отличия от плана.** Клиент LLM на `httpx`, а не на SDK `openai`: явный `POST /v1/chat/completions` и прямой перевод `ConnectError`/`TimeoutException` в `UNAVAILABLE`/`DEADLINE_EXCEEDED`. Добавлен скрипт `scripts/compare_llm.py`, чтобы сравнение моделей было воспроизводимым. При старте RAG проверяет, что модель скачана (`OpenAICompatibleClient.probe`), и пишет предупреждение в лог.
 
@@ -431,6 +433,70 @@ VRAM без LLM: 2494 MiB
 среднее время ответа qwen3:8b: 3.9 s
 ```
 
+Server streaming `AskStream` (2026-11-06). Через grpcurl видно сообщения потока, через `scripts/ask_stream.py` — когда они приходят:
+
+```text
+$ grpcurl -plaintext -d '{"question": "Что такое топологический заряд?", "top_k": 2}' localhost:50051 corag.rag.v1.RagService/AskStream
+{
+  "sources": {
+    "found": true,
+    "citations": [
+      {
+        "chunk_id": "447",
+        "article_id": "3",
+        "article_title": "Острая фокусировка вихревых лазерных пучков",
+        "year": 2015,
+        …
+        "score": 0.6094949,
+        …
+      }
+    ]
+  }
+}
+{
+  "delta": "Т"
+}
+{
+  "delta": "оп"
+}
+…
+{
+  "delta": "]."
+}
+
+$ uv run --package corag-api python scripts/ask_stream.py "Как рассчитать ДОЭ для фокусировки лазерного излучения в кольцо?"
+[1.8 s] источники: found=true
+  [1] «Расчёт дифракционного оптического элемента для фокусировки в кольцо», 1998 № 1, с. 1
+  [2] «Расчёт дифракционного оптического элемента для фокусировки в кольцо», 1998 № 1, с. 3
+  [3] «Расчёт дифракционного оптического элемента для фокусировки в кольцо», 1998 № 1, с. 2
+[2.2 s] ответ:
+Рассчитывается дифракционный оптический элемент (ДОЭ) в приближении Френеля для фокусировки лазерного излучения в кольцо заданного радиуса [1].
+[3.0 s] поток закрыт (OK)
+
+# Терминал 1
+2026-11-06 11:45:14,171 INFO corag_rag [rag] ← AskStream "Как рассчитать ДОЭ для фокусировки лазерного излучения в кольцо?" top_k=5
+2026-11-06 11:45:15,931 INFO corag_rag [rag] retrieved 3 chunks (best 0.81)
+2026-11-06 11:45:15,932 INFO corag_rag [rag] → LLM qwen2.5:7b-instruct: 3 фрагментов в контексте
+2026-11-06 11:45:15,933 INFO corag_rag [rag] → AskStream: отправлены источники (3)
+2026-11-06 11:45:16,408 INFO corag_rag [rag] ← LLM qwen2.5:7b-instruct: первый фрагмент через 0.5 s
+2026-11-06 11:45:17,175 INFO corag_rag [rag] ← LLM qwen2.5:7b-instruct поток 1.2 s, 54 частей, токены: промпт 602, ответ 55
+2026-11-06 11:45:17,176 INFO corag_rag [rag] → AskStream: поток закрыт, 54 частей ответа
+```
+
+Асинхронность сервера: `Ask` с выгруженной из видеопамяти LLM и `Search`, отправленный через 2,5 с. Пока `Ask` ждёт LLM, event loop обслуживает `Search`:
+
+```text
+Search завершён через 4.373 s (отправлен на 2.5 s)
+Ask    завершён через 6.290 s
+2026-11-06 11:45:32,700 INFO corag_rag [rag] ← Ask "Как рассчитать ДОЭ для фокусировки в кольцо?" top_k=5
+2026-11-06 11:45:34,225 INFO corag_rag [rag] retrieved 3 chunks (best 0.77)
+2026-11-06 11:45:34,225 INFO corag_rag [rag] → LLM qwen2.5:7b-instruct: 3 фрагментов в контексте
+2026-11-06 11:45:35,202 INFO corag_rag [rag] ← Search "топологический заряд вихревого пучка" top_k=1
+2026-11-06 11:45:37,057 INFO corag_rag [rag] → SearchResponse 1 results (best 0.61, MIN_SCORE=0.35)
+2026-11-06 11:45:38,973 INFO corag_rag [rag] ← LLM qwen2.5:7b-instruct 4.7 s, токены: промпт 595, ответ 82
+2026-11-06 11:45:38,974 INFO corag_rag [rag] → AskResponse 3 citations
+```
+
 ![Логи API и RAG Service в двух терминалах рядом](img/lr3/two-terminals.png)
 
 Рисунок 4 — Путь запроса `/rag/ask` в логах двух процессов
@@ -450,14 +516,16 @@ VRAM без LLM: 2494 MiB
   - фильтр по годам, дедупликация;
   - `IndexIssue` идемпотентен;
   - перевод ошибок в статусы и обратно в `RagError`;
+  - `AskStream`: источники первым сообщением, склейка частей равна ответу, вне архива LLM не вызывается, ошибка LLM приходит после источников;
+- **поток LLM** — разбор SSE (`data: …`, `[DONE]`), вырезание `<think>…</think>` из разорванных частей, 404/503/обрыв соединения → `LLMUnavailable` (`test_llm.py`, `httpx.MockTransport`);
 - **API** — `/rag/ask`, `/rag/search`, reindex: 200, 401, 403, 422 от Pydantic, перевод 422/404/409/503/504/502 (`tests/api/test_rag.py`, двойник `RagClient`);
 - **БД** — `ArticleRepository.author_names` (`tests/db/test_articles.py`);
 - **slow** — настоящая jina-embeddings-v3: размерность, L2-норма, близость вопроса к своему фрагменту, чанкер с токенизатором модели.
 
 ```text
 $ uv run pytest -q tests/rag
-..........................                                               [100%]
-26 passed, 3 deselected in 0.90s
+.....................................                                    [100%]
+37 passed, 3 deselected in 0.76s
 
 $ uv run pytest tests/rag/test_servicer.py -v
 tests/rag/test_servicer.py::test_index_issue_is_idempotent PASSED
@@ -471,23 +539,27 @@ tests/rag/test_servicer.py::test_search_dedupes_page_shared_by_two_articles PASS
 tests/rag/test_servicer.py::test_llm_errors_map_to_grpc_status[LLMUnavailable-RagUnavailable] PASSED
 tests/rag/test_servicer.py::test_llm_errors_map_to_grpc_status[LLMTimeout-RagDeadlineExceeded] PASSED
 tests/rag/test_servicer.py::test_unexpected_error_is_internal PASSED
+tests/rag/test_servicer.py::test_ask_stream_sends_sources_first_then_answer_parts PASSED
+tests/rag/test_servicer.py::test_ask_stream_outside_archive_skips_llm PASSED
+tests/rag/test_servicer.py::test_ask_stream_invalid_argument PASSED
+tests/rag/test_servicer.py::test_ask_stream_llm_error_after_sources PASSED
 tests/rag/test_servicer.py::test_rag_service_down_is_unavailable PASSED
 
 $ uv run pytest -q
-..............................................................           [100%]
-134 passed, 3 deselected in 8.26s
+…
+145 passed, 3 deselected in 6.67s
 
 $ uv run pytest -q -m slow tests/rag
-3 passed, 26 deselected in 12.05s
+3 passed, 37 deselected in 12.50s
 
 $ uv run ruff check . && uv run ruff format --check .
 All checks passed!
-124 files already formatted
+128 files already formatted
 ```
 
 ## 6. Выводы
 
-Изучено сервисное взаимодействие через gRPC: контракт в `.proto` и кодогенерация, unary-вызовы поверх HTTP/2, deadline, статусы, health checking и reflection. Также освоено двоичное кодирование Protocol Buffers и правила совместимого расширения схемы. RAG Service работает отдельным процессом с настоящей моделью эмбеддингов Jina и локальной LLM. API вызывает его по gRPC, а логи обоих процессов показывают путь запроса. Вопрос вне архива получает `found=false` без обращения к LLM, ошибки gRPC переводятся в коды HTTP, повторная индексация не плодит дублей.
+Изучено сервисное взаимодействие через gRPC: контракт в `.proto` и кодогенерация, unary-вызовы и server streaming поверх HTTP/2, deadline, статусы, health checking и reflection. Также освоено двоичное кодирование Protocol Buffers и правила совместимого расширения схемы. RAG Service работает отдельным процессом с настоящей моделью эмбеддингов Jina и локальной LLM. API вызывает его по gRPC, а логи обоих процессов показывают путь запроса. Вопрос вне архива получает `found=false` без обращения к LLM, ошибки gRPC переводятся в коды HTTP, повторная индексация не плодит дублей.
 
 Ограничения:
 
@@ -509,10 +581,13 @@ syntax = "proto3";
 
 package corag.rag.v1;
 
-// Все методы — unary (один запрос → один ответ).
+// Ask, Search, IndexIssue — unary (один запрос → один ответ); AskStream — server streaming.
 service RagService {
   // Ответ на вопрос по архиву с источниками (эмбеддинг → top-k → LLM).
   rpc Ask (AskRequest) returns (AskResponse);
+  // То же, но потоком (расширение ТЗ, ЛР3): первым сообщением — источники, затем ответ LLM
+  // частями по мере генерации. Конец ответа — закрытие потока со статусом OK (в trailers).
+  rpc AskStream (AskRequest) returns (stream AskStreamResponse);
   // Только поиск: top-k фрагментов без генерации.
   rpc Search (SearchRequest) returns (SearchResponse);
   // Чанкинг и эмбеддинги страниц выпуска; повторный вызов заменяет чанки (идемпотентно).
@@ -551,6 +626,20 @@ message AskResponse {
   bool found = 3;          // false — релевантных фрагментов нет, LLM не вызывалась
 }
 
+// Первое сообщение потока AskStream: найденные фрагменты (до вызова LLM).
+message AskSources {
+  bool found = 1;                   // false — дальше придёт только стандартный ответ
+  repeated Citation citations = 2;  // по порядку ссылок [1]..[k]
+}
+
+// Сообщение потока AskStream: ровно одно из полей oneof.
+message AskStreamResponse {
+  oneof event {
+    AskSources sources = 1;  // первое сообщение
+    string delta = 2;        // очередной фрагмент текста ответа
+  }
+}
+
 message SearchRequest {
   string query = 1;
   int32 top_k = 2;
@@ -571,65 +660,69 @@ message IndexIssueResponse {
 }
 ```
 
-Листинг А.2 — `services/rag/src/corag_rag/servicer.py` (фрагмент: перевод исключений в статусы gRPC)
+Листинг А.2 — `services/rag/src/corag_rag/servicer.py` (фрагмент: перевод исключений в статусы gRPC; словарь `STATUS_CODES` — в таблице 3)
 
 ```python
-STATUS_CODES: dict[type[Exception], grpc.StatusCode] = {
-    InvalidArgument: grpc.StatusCode.INVALID_ARGUMENT,
-    NotFound: grpc.StatusCode.NOT_FOUND,
-    FailedPrecondition: grpc.StatusCode.FAILED_PRECONDITION,
-    LLMUnavailable: grpc.StatusCode.UNAVAILABLE,
-    LLMTimeout: grpc.StatusCode.DEADLINE_EXCEEDED,
-}
+async def _abort(context: Context, method: str, exc: Exception) -> NoReturn:
+    """Исключение → статус gRPC; context.abort бросает исключение и завершает вызов."""
+    code = next((c for cls, c in STATUS_CODES.items() if isinstance(exc, cls)), None)
+    if code is None:
+        log.error("[rag] %s → INTERNAL", method, exc_info=exc)
+        await context.abort(grpc.StatusCode.INTERNAL, "внутренняя ошибка RAG Service")
+    else:
+        log.info("[rag] %s → %s: %s", method, code.name, exc)
+        await context.abort(code, str(exc))
+    raise AssertionError("context.abort всегда бросает исключение")  # pragma: no cover
 
 
 def rpc[Req, Resp](method: Handler[Req, Resp]) -> Handler[Req, Resp]:
-    """Перевод исключений метода в статус gRPC (context.abort) — в одном месте."""
+    """Unary-метод: перевод исключений в статус gRPC (context.abort) — в одном месте."""
 
     @functools.wraps(method)
-    async def wrapper(self: "RagServicer", request: Req, context: grpc.aio.ServicerContext) -> Resp:
+    async def wrapper(self: "RagServicer", request: Req, context: Context) -> Resp:
         try:
             return await method(self, request, context)
-        except tuple(STATUS_CODES) as exc:
-            code = next(c for cls, c in STATUS_CODES.items() if isinstance(exc, cls))
-            log.info("[rag] %s → %s: %s", method.__name__, code.name, exc)
-            await context.abort(code, str(exc))
-        except Exception:
-            log.exception("[rag] %s → INTERNAL", method.__name__)
-            await context.abort(grpc.StatusCode.INTERNAL, "внутренняя ошибка RAG Service")
-        raise AssertionError("context.abort всегда бросает исключение")  # pragma: no cover
+        except Exception as exc:
+            await _abort(context, method.__name__, exc)
 
     return wrapper
+
+
+# rpc_stream — то же для async-генератора: async for … yield внутри try
 ```
 
-Листинг А.3 — `services/rag/src/corag_rag/servicer.py` (фрагмент: `RagServicer.Ask`)
+Листинг А.3 — `services/rag/src/corag_rag/servicer.py` (фрагмент: `RagServicer.Ask` и `AskStream`; проверка запроса и поиск — общий `_retrieve`)
 
 ```python
     @rpc
-    async def Ask(
-        self, request: rag_pb2.AskRequest, context: grpc.aio.ServicerContext
-    ) -> rag_pb2.AskResponse:
-        question = request.question.strip()
-        top_k, year_from, year_to = self._validate(question, request.top_k, request.filters)
-        log.info('[rag] ← Ask "%s" top_k=%d%s', _short(question), top_k, _years(year_from, year_to))
-        result = await self.retriever.search(question, top_k, year_from, year_to)
+    async def Ask(self, request: rag_pb2.AskRequest, context: Context) -> rag_pb2.AskResponse:
+        question, result = await self._retrieve("Ask", request)
         if not result.hits:
-            log.info(
-                "[rag] нет фрагментов со сходством ≥ MIN_SCORE=%.2f (best %s) "
-                "→ found=false, LLM не вызывается",
-                self.settings.MIN_SCORE,
-                _score(result.best_score),
-            )
             return rag_pb2.AskResponse(answer=NOT_FOUND_ANSWER, found=False)
 
-        log.info("[rag] retrieved %d chunks (best %.2f)", len(result.hits), result.best_score)
-        log.info("[rag] → LLM %s: %d фрагментов в контексте", self.llm.model, len(result.hits))
         answer = await self.llm.chat(
             build_messages(question, result.hits), timeout_s=self._llm_timeout(context)
         )
         citations = [self._citation(hit) for hit in result.hits]
         log.info("[rag] → AskResponse %d citations", len(citations))
         return rag_pb2.AskResponse(answer=answer, found=True, citations=citations)
+
+    @rpc_stream
+    async def AskStream(
+        self, request: rag_pb2.AskRequest, context: Context
+    ) -> AsyncIterator[rag_pb2.AskStreamResponse]:
+        question, result = await self._retrieve("AskStream", request)
+        if not result.hits:
+            yield rag_pb2.AskStreamResponse(sources=rag_pb2.AskSources(found=False))
+            yield rag_pb2.AskStreamResponse(delta=NOT_FOUND_ANSWER)
+            return
+
+        citations = [self._citation(hit) for hit in result.hits]
+        yield rag_pb2.AskStreamResponse(sources=rag_pb2.AskSources(found=True, citations=citations))
+        …
+        async for delta in stream:
+            parts += 1
+            yield rag_pb2.AskStreamResponse(delta=delta)
 ```
 
 Листинг А.4 — `packages/corag-contracts/src/corag_contracts/rag_client.py` (фрагмент: deadline и ошибки)
@@ -839,4 +932,5 @@ OLLAMA_CONTEXT_LENGTH=8192
 - [ ] вписать номер PR в шапку после создания PR `lr3-grpc-rag → main` (после слияния PR #2);
 - [ ] скриншот двух терминалов рядом (RAG слева, API справа) во время `bash scripts/demo_lr3.sh`, шаги 6–8 → `docs/reports/img/lr3/two-terminals.png`;
 - [ ] добавить в Postman-коллекцию запросы `POST /rag/ask`, `POST /rag/search`, `POST /issues/{id}/reindex`; скриншот ответа `/rag/ask` с `citations` → `docs/reports/img/lr3/postman-ask.png`;
+- [ ] прогнать gRPC-запросы в самом Postman (`127.0.0.1:50051`, server reflection): `AskStream` и пара «холодный `Ask` + `Search`» по `defense/lr3-qa.md`, вопрос 11;
 - [ ] пройти репетицию по `defense/lr3.md`, раздел 1: прогреть LLM заранее, первый `/rag/ask` после старта Ollama идёт до ~60 с.
