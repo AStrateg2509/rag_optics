@@ -2,7 +2,7 @@
 
 Вопросы, которые задавали на защите ЛР3. По каждому — **Сказать** (своими словами, на примере CO-RAG) и **Показать** (файл → функция или команда).
 Выводы и логи — из прогонов 2026-11-06: RAG и API запущены, выпуски сида проиндексированы (`bash scripts/demo_lr3.sh`, 15 с).
-Окна и запуск — раздел 1 `defense/lr3.md`.
+Окна и запуск — раздел 1 `defense/lr3.md`. Где время не важно, в логах опущен префикс `2026-11-06 hh:mm:ss,mmm INFO corag_rag` / `corag_api`.
 
 | № | Вопрос | Главное, что показать |
 | --- | --- | --- |
@@ -227,24 +227,24 @@ origin	https://github.com/AStrateg2509/rag_optics.git (push)
 ```python
 async def serve(settings: RagSettings) -> None:
     async with get_session() as session:
-        await ping(session)                                       # 1. БД доступна
+        await ping(session)  # 1. БД доступна
     embedder = await asyncio.to_thread(JinaEmbedder.load, settings)  # 2. модель до открытия порта
     await asyncio.to_thread(embedder.warmup)
     ...
     servicer = RagServicer(retriever=..., indexer=..., llm=llm, settings=settings)
-    server = grpc.aio.server()                                    # 3. асинхронный сервер
+    server = grpc.aio.server()  # 3. асинхронный сервер
     rag_pb2_grpc.add_RagServiceServicer_to_server(servicer, server)
-    health_servicer = health.aio.HealthServicer()                 # 4. grpc.health.v1
+    health_servicer = health.aio.HealthServicer()  # 4. grpc.health.v1
     health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
     reflection.enable_server_reflection([SERVICE_NAME, ...], server)  # 5. для grpcurl/Postman
-    server.add_insecure_port(address)                             # 6. [::]:50051, без TLS
+    server.add_insecure_port(address)  # 6. [::]:50051, без TLS
     await server.start()
     ...
-    for sig in (signal.SIGINT, signal.SIGTERM):                   # 7. ждём сигнал
+    for sig in (signal.SIGINT, signal.SIGTERM):  # 7. ждём сигнал
         loop.add_signal_handler(sig, stop.set)
     await stop.wait()
-    await health_servicer.enter_graceful_shutdown()               # 8. NOT_SERVING
-    await server.stop(grace=GRACE_S)                              #    активным вызовам 5 с
+    await health_servicer.enter_graceful_shutdown()  # 8. NOT_SERVING
+    await server.stop(grace=GRACE_S)  #    активным вызовам — до 5 с
 ```
 
 **Сказать.**
@@ -344,18 +344,18 @@ service RagService {
 6. Нажать **Invoke** во вкладке 1, сразу переключиться и нажать **Invoke** во вкладке 2. `Search` ответит раньше, хотя отправлен позже. В терминале 1 строки двух вызовов чередуются.
 7. Бонус: метод `AskStream` → Invoke. Сообщения приходят по одному: сначала `sources`, затем `delta`.
 
-**Тот же опыт через grpcurl (реальный прогон):** `Ask` отправлен в момент 0, `Search` — через 2,5 с:
+**Тот же опыт через grpcurl (реальный прогон):** `Ask` запущен в фоне (`&`) в момент 0, `Search` — через 2,5 с:
 
 ```text
 Search завершён через 4.373 s (отправлен на 2.5 s)
 Ask    завершён через 6.290 s
-[rag] ← Ask "Как рассчитать ДОЭ для фокусировки в кольцо?" top_k=5          11:45:32,700
-[rag] retrieved 3 chunks (best 0.77)                                         11:45:34,225
-[rag] → LLM qwen2.5:7b-instruct: 3 фрагментов в контексте                     11:45:34,225
-[rag] ← Search "топологический заряд вихревого пучка" top_k=1                 11:45:35,202
-[rag] → SearchResponse 1 results (best 0.61, MIN_SCORE=0.35)                  11:45:37,057
-[rag] ← LLM qwen2.5:7b-instruct 4.7 s, токены: промпт 595, ответ 82           11:45:38,973
-[rag] → AskResponse 3 citations                                              11:45:38,974
+2026-11-06 11:45:32,700 INFO corag_rag [rag] ← Ask "Как рассчитать ДОЭ для фокусировки в кольцо?" top_k=5
+2026-11-06 11:45:34,225 INFO corag_rag [rag] retrieved 3 chunks (best 0.77)
+2026-11-06 11:45:34,225 INFO corag_rag [rag] → LLM qwen2.5:7b-instruct: 3 фрагментов в контексте
+2026-11-06 11:45:35,202 INFO corag_rag [rag] ← Search "топологический заряд вихревого пучка" top_k=1
+2026-11-06 11:45:37,057 INFO corag_rag [rag] → SearchResponse 1 results (best 0.61, MIN_SCORE=0.35)
+2026-11-06 11:45:38,973 INFO corag_rag [rag] ← LLM qwen2.5:7b-instruct 4.7 s, токены: промпт 595, ответ 82
+2026-11-06 11:45:38,974 INFO corag_rag [rag] → AskResponse 3 citations
 ```
 
 **Сказать.**
@@ -502,7 +502,7 @@ message AskStreamResponse {
 }
 ```
 
-**Шаг 2. Сервер** (`services/rag/src/corag_rag/servicer.py` → `RagServicer.AskStream`). Метод — async-генератор: каждый `yield` отправляет клиенту одно сообщение:
+**Шаг 2. Сервер** (`services/rag/src/corag_rag/servicer.py` → `RagServicer.AskStream`). Метод — async-генератор: каждый `yield` отправляет клиенту одно сообщение. Листинг без строк лога, комментарий добавлен:
 
 ```python
 @rpc_stream
@@ -517,7 +517,7 @@ async def AskStream(self, request, context) -> AsyncIterator[rag_pb2.AskStreamRe
     stream = self.llm.chat_stream(
         build_messages(question, result.hits), timeout_s=self._llm_timeout(context)
     )
-    async for delta in stream:          # SSE от Ollama: stream=true
+    async for delta in stream:  # SSE от Ollama: stream=true
         yield rag_pb2.AskStreamResponse(delta=delta)
 ```
 
@@ -529,14 +529,15 @@ try:
     async for msg in call:
         match msg.WhichOneof("event"):
             case "sources":
-                yield AskSources(found=msg.sources.found,
-                                 citations=[_citation(c) for c in msg.sources.citations])
+                yield AskSources(
+                    found=msg.sources.found, citations=[_citation(c) for c in msg.sources.citations]
+                )
             case "delta":
                 yield msg.delta
 except grpc.aio.AioRpcError as exc:
     raise map_rpc_error(exc) from exc
 finally:
-    call.cancel()       # потребитель вышел раньше — отменить вызов на сервере
+    call.cancel()  # потребитель вышел раньше — отменить вызов на сервере
 ```
 
 Ollama отдаёт поток как Server-Sent Events: `data: {"choices":[{"delta":{"content":"…"}}]}` … `data: [DONE]`. Разбор — `services/rag/src/corag_rag/llm.py` → `OpenAICompatibleClient.chat_stream`, тесты — `tests/rag/test_llm.py`.
