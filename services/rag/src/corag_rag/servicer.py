@@ -1,8 +1,12 @@
-"""RagServicer — реализация gRPC-сервиса corag.rag.v1.RagService (Ask, Search, IndexIssue)."""
+"""RagServicer — реализация gRPC-сервиса corag.rag.v1.RagService.
+
+Ask, Search, IndexIssue — unary; AskStream — server streaming (ответ LLM частями).
+"""
 
 import functools
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import NoReturn
 
 import grpc
 
@@ -17,7 +21,7 @@ from corag_rag.errors import (
 from corag_rag.indexer import Indexer
 from corag_rag.llm import LLMClient
 from corag_rag.prompts import NOT_FOUND_ANSWER, build_messages
-from corag_rag.retriever import Hit, Retriever
+from corag_rag.retriever import Hit, Retriever, SearchResult
 from corag_rag.settings import RagSettings
 
 log = logging.getLogger("corag_rag")
@@ -31,24 +35,47 @@ STATUS_CODES: dict[type[Exception], grpc.StatusCode] = {
     LLMTimeout: grpc.StatusCode.DEADLINE_EXCEEDED,
 }
 
-type Handler[Req, Resp] = Callable[["RagServicer", Req, grpc.aio.ServicerContext], Awaitable[Resp]]
+type Context = grpc.aio.ServicerContext
+type Handler[Req, Resp] = Callable[["RagServicer", Req, Context], Awaitable[Resp]]
+type StreamHandler[Req, Resp] = Callable[["RagServicer", Req, Context], AsyncIterator[Resp]]
+
+
+async def _abort(context: Context, method: str, exc: Exception) -> NoReturn:
+    """Исключение → статус gRPC; context.abort бросает исключение и завершает вызов."""
+    code = next((c for cls, c in STATUS_CODES.items() if isinstance(exc, cls)), None)
+    if code is None:
+        log.error("[rag] %s → INTERNAL", method, exc_info=exc)
+        await context.abort(grpc.StatusCode.INTERNAL, "внутренняя ошибка RAG Service")
+    else:
+        log.info("[rag] %s → %s: %s", method, code.name, exc)
+        await context.abort(code, str(exc))
+    raise AssertionError("context.abort всегда бросает исключение")  # pragma: no cover
 
 
 def rpc[Req, Resp](method: Handler[Req, Resp]) -> Handler[Req, Resp]:
-    """Перевод исключений метода в статус gRPC (context.abort) — в одном месте."""
+    """Unary-метод: перевод исключений в статус gRPC (context.abort) — в одном месте."""
 
     @functools.wraps(method)
-    async def wrapper(self: "RagServicer", request: Req, context: grpc.aio.ServicerContext) -> Resp:
+    async def wrapper(self: "RagServicer", request: Req, context: Context) -> Resp:
         try:
             return await method(self, request, context)
-        except tuple(STATUS_CODES) as exc:
-            code = next(c for cls, c in STATUS_CODES.items() if isinstance(exc, cls))
-            log.info("[rag] %s → %s: %s", method.__name__, code.name, exc)
-            await context.abort(code, str(exc))
-        except Exception:
-            log.exception("[rag] %s → INTERNAL", method.__name__)
-            await context.abort(grpc.StatusCode.INTERNAL, "внутренняя ошибка RAG Service")
-        raise AssertionError("context.abort всегда бросает исключение")  # pragma: no cover
+        except Exception as exc:
+            await _abort(context, method.__name__, exc)
+
+    return wrapper
+
+
+def rpc_stream[Req, Resp](method: StreamHandler[Req, Resp]) -> StreamHandler[Req, Resp]:
+    """Server streaming: то же для async-генератора. Ошибка посреди потока — клиент уже
+    получил часть сообщений, а статус ошибки придёт в trailers вместо OK."""
+
+    @functools.wraps(method)
+    async def wrapper(self: "RagServicer", request: Req, context: Context) -> AsyncIterator[Resp]:
+        try:
+            async for response in method(self, request, context):
+                yield response
+        except Exception as exc:
+            await _abort(context, method.__name__, exc)
 
     return wrapper
 
@@ -63,24 +90,11 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
         self.settings = settings
 
     @rpc
-    async def Ask(
-        self, request: rag_pb2.AskRequest, context: grpc.aio.ServicerContext
-    ) -> rag_pb2.AskResponse:
-        question = request.question.strip()
-        top_k, year_from, year_to = self._validate(question, request.top_k, request.filters)
-        log.info('[rag] ← Ask "%s" top_k=%d%s', _short(question), top_k, _years(year_from, year_to))
-        result = await self.retriever.search(question, top_k, year_from, year_to)
+    async def Ask(self, request: rag_pb2.AskRequest, context: Context) -> rag_pb2.AskResponse:
+        question, result = await self._retrieve("Ask", request)
         if not result.hits:
-            log.info(
-                "[rag] нет фрагментов со сходством ≥ MIN_SCORE=%.2f (best %s) "
-                "→ found=false, LLM не вызывается",
-                self.settings.MIN_SCORE,
-                _score(result.best_score),
-            )
             return rag_pb2.AskResponse(answer=NOT_FOUND_ANSWER, found=False)
 
-        log.info("[rag] retrieved %d chunks (best %.2f)", len(result.hits), result.best_score)
-        log.info("[rag] → LLM %s: %d фрагментов в контексте", self.llm.model, len(result.hits))
         answer = await self.llm.chat(
             build_messages(question, result.hits), timeout_s=self._llm_timeout(context)
         )
@@ -88,9 +102,32 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
         log.info("[rag] → AskResponse %d citations", len(citations))
         return rag_pb2.AskResponse(answer=answer, found=True, citations=citations)
 
+    @rpc_stream
+    async def AskStream(
+        self, request: rag_pb2.AskRequest, context: Context
+    ) -> AsyncIterator[rag_pb2.AskStreamResponse]:
+        """Server streaming: источники — сразу после поиска, текст — по мере генерации LLM."""
+        question, result = await self._retrieve("AskStream", request)
+        if not result.hits:
+            yield rag_pb2.AskStreamResponse(sources=rag_pb2.AskSources(found=False))
+            yield rag_pb2.AskStreamResponse(delta=NOT_FOUND_ANSWER)
+            return
+
+        citations = [self._citation(hit) for hit in result.hits]
+        yield rag_pb2.AskStreamResponse(sources=rag_pb2.AskSources(found=True, citations=citations))
+        log.info("[rag] → AskStream: отправлены источники (%d)", len(citations))
+        parts = 0
+        stream = self.llm.chat_stream(
+            build_messages(question, result.hits), timeout_s=self._llm_timeout(context)
+        )
+        async for delta in stream:
+            parts += 1
+            yield rag_pb2.AskStreamResponse(delta=delta)
+        log.info("[rag] → AskStream: поток закрыт, %d частей ответа", parts)
+
     @rpc
     async def Search(
-        self, request: rag_pb2.SearchRequest, context: grpc.aio.ServicerContext
+        self, request: rag_pb2.SearchRequest, context: Context
     ) -> rag_pb2.SearchResponse:
         query = request.query.strip()
         top_k, year_from, year_to = self._validate(query, request.top_k, request.filters)
@@ -106,13 +143,37 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
 
     @rpc
     async def IndexIssue(
-        self, request: rag_pb2.IndexIssueRequest, context: grpc.aio.ServicerContext
+        self, request: rag_pb2.IndexIssueRequest, context: Context
     ) -> rag_pb2.IndexIssueResponse:
         log.info("[rag] ← IndexIssue issue=%d", request.issue_id)
         if request.issue_id <= 0:
             raise InvalidArgument("issue_id должен быть положительным")
         result = await self.indexer.index_issue(request.issue_id)
         return rag_pb2.IndexIssueResponse(pages_indexed=result.pages, chunks_indexed=result.chunks)
+
+    async def _retrieve(self, method: str, request: rag_pb2.AskRequest) -> tuple[str, SearchResult]:
+        """Общая часть Ask и AskStream: проверка запроса и поиск фрагментов."""
+        question = request.question.strip()
+        top_k, year_from, year_to = self._validate(question, request.top_k, request.filters)
+        log.info(
+            '[rag] ← %s "%s" top_k=%d%s',
+            method,
+            _short(question),
+            top_k,
+            _years(year_from, year_to),
+        )
+        result = await self.retriever.search(question, top_k, year_from, year_to)
+        if not result.hits:
+            log.info(
+                "[rag] нет фрагментов со сходством ≥ MIN_SCORE=%.2f (best %s) "
+                "→ found=false, LLM не вызывается",
+                self.settings.MIN_SCORE,
+                _score(result.best_score),
+            )
+        else:
+            log.info("[rag] retrieved %d chunks (best %.2f)", len(result.hits), result.best_score)
+            log.info("[rag] → LLM %s: %d фрагментов в контексте", self.llm.model, len(result.hits))
+        return question, result
 
     def _validate(
         self, text: str, top_k: int, filters: rag_pb2.Filters
@@ -130,7 +191,7 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
             raise InvalidArgument("year_from больше year_to")
         return top_k or self.settings.TOP_K, year_from, year_to
 
-    def _llm_timeout(self, context: grpc.aio.ServicerContext) -> float:
+    def _llm_timeout(self, context: Context) -> float:
         """Не ждать LLM дольше, чем осталось до deadline клиента."""
         remaining = context.time_remaining()
         timeout = self.settings.LLM_TIMEOUT_S
