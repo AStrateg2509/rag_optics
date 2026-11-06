@@ -1,10 +1,11 @@
 """Асинхронный клиент RAG Service (gRPC): API Service (ЛР3) и OCR Worker (ЛР4).
 
 - один канал grpc.aio на процесс: создаётся при старте, закрывается при остановке;
-- deadline на каждый вызов: Ask 120 с, Search 15 с, IndexIssue 30 мин;
+- deadline на каждый вызов: Ask (и AskStream — на весь поток) 120 с, Search 15 с, IndexIssue 30 мин;
 - ответы protobuf переводятся в модели Pydantic, ошибки gRPC — в исключения RagError.
 """
 
+from collections.abc import AsyncIterator
 from types import TracebackType
 
 import grpc
@@ -42,6 +43,13 @@ class Citation(BaseModel):
 
 class AskResult(BaseModel):
     answer: str
+    found: bool
+    citations: list[Citation]
+
+
+class AskSources(BaseModel):
+    """Первое сообщение потока AskStream: найдено ли что-то и источники [1]..[k]."""
+
     found: bool
     citations: list[Citation]
 
@@ -151,6 +159,34 @@ class RagClient:
         return AskResult(
             answer=resp.answer, found=resp.found, citations=[_citation(c) for c in resp.citations]
         )
+
+    async def ask_stream(
+        self,
+        question: str,
+        *,
+        top_k: int | None = None,
+        year_from: int | None = None,
+        year_to: int | None = None,
+    ) -> AsyncIterator[AskSources | str]:
+        """Server streaming: сначала AskSources, затем строки — части ответа по мере генерации."""
+        request = rag_pb2.AskRequest(
+            question=question, top_k=top_k or 0, filters=_filters(year_from, year_to)
+        )
+        call = self._stub.AskStream(request, timeout=self.ask_timeout_s)
+        try:
+            async for msg in call:
+                match msg.WhichOneof("event"):
+                    case "sources":
+                        yield AskSources(
+                            found=msg.sources.found,
+                            citations=[_citation(c) for c in msg.sources.citations],
+                        )
+                    case "delta":
+                        yield msg.delta
+        except grpc.aio.AioRpcError as exc:
+            raise map_rpc_error(exc) from exc
+        finally:
+            call.cancel()  # потребитель вышел раньше конца потока — отменить вызов на сервере
 
     async def search(
         self,
