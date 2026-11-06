@@ -1,7 +1,7 @@
 """Тестовые двойники RAG Service (только для тестов: в сервисе — настоящие Jina и LLM)."""
 
 import re
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 
 import numpy as np
 import pytest
@@ -66,6 +66,15 @@ class FakeLLM:
         if self.fail is not None:
             raise self.fail(f"{self.fail.__name__} (тест)")
         return self.answer
+
+    async def chat_stream(self, messages: list[dict], timeout_s: float) -> AsyncIterator[str]:
+        """Ответ по словам (с пробелом впереди, кроме первого) — склейка частей даёт answer."""
+        self.calls.append(messages)
+        self.timeouts.append(timeout_s)
+        if self.fail is not None:
+            raise self.fail(f"{self.fail.__name__} (тест)")
+        for i, word in enumerate(self.answer.split(" ")):
+            yield word if i == 0 else " " + word
 
 
 __all__ = ["FakeEmbedder", "FakeLLM", "LLMTimeout", "LLMUnavailable", "WhitespaceTokens"]

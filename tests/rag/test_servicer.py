@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from corag_contracts.rag.v1 import rag_pb2_grpc
 from corag_contracts.rag_client import (
+    AskSources,
     RagClient,
     RagDeadlineExceeded,
     RagError,
@@ -224,6 +225,51 @@ async def test_unexpected_error_is_internal(rag, indexed, llm):
         await rag.ask("спиральная фазовая пластинка")
     assert info.value.code is grpc.StatusCode.INTERNAL
     assert "внутренняя ошибка" in info.value.details
+
+
+async def collect(stream) -> tuple[list, str]:
+    """Поток AskStream → (все сообщения по порядку, склеенный текст ответа)."""
+    events = [event async for event in stream]
+    return events, "".join(e for e in events if isinstance(e, str))
+
+
+async def test_ask_stream_sends_sources_first_then_answer_parts(rag, indexed, llm):
+    events, text = await collect(rag.ask_stream("спиральная фазовая пластинка вихревые пучки"))
+    sources = events[0]
+    assert isinstance(sources, AskSources)
+    assert sources.found is True
+    assert sources.citations[0].authors == ["Котляр В. В.", "Сойфер В. А."]
+    scores = [c.score for c in sources.citations]
+    assert scores == sorted(scores, reverse=True)
+    # Источники — только первым сообщением, дальше — части текста
+    assert all(isinstance(e, str) for e in events[1:])
+    assert len(events) - 1 == len(llm.answer.split(" ")) > 1
+    assert text == llm.answer
+    assert len(llm.calls) == 1
+    assert 0 < llm.timeouts[0] <= 10
+
+
+async def test_ask_stream_outside_archive_skips_llm(rag, indexed, llm):
+    events, text = await collect(rag.ask_stream("Рецепт борща со сметаной"))
+    assert events[0] == AskSources(found=False, citations=[])
+    assert text == NOT_FOUND_ANSWER
+    assert llm.calls == []
+
+
+async def test_ask_stream_invalid_argument(rag):
+    with pytest.raises(RagInvalidArgument, match="пустой вопрос"):
+        await collect(rag.ask_stream("  "))
+
+
+async def test_ask_stream_llm_error_after_sources(rag, indexed, llm):
+    llm.fail = LLMUnavailable
+    received = []
+    with pytest.raises(RagUnavailable):
+        async for event in rag.ask_stream("спиральная фазовая пластинка"):
+            received.append(event)
+    # Источники клиент уже получил; статус ошибки пришёл в trailers вместо OK
+    assert len(received) == 1
+    assert isinstance(received[0], AskSources)
 
 
 async def test_rag_service_down_is_unavailable():
