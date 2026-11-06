@@ -26,7 +26,7 @@ if _version_not_supported:
 
 
 class RagServiceStub:
-    """Все методы — unary (один запрос → один ответ).
+    """Ask, Search, IndexIssue — unary (один запрос → один ответ); AskStream — server streaming.
     """
 
     def __init__(self, channel):
@@ -39,6 +39,11 @@ class RagServiceStub:
                 '/corag.rag.v1.RagService/Ask',
                 request_serializer=rag_dot_v1_dot_rag__pb2.AskRequest.SerializeToString,
                 response_deserializer=rag_dot_v1_dot_rag__pb2.AskResponse.FromString,
+                _registered_method=True)
+        self.AskStream = channel.unary_stream(
+                '/corag.rag.v1.RagService/AskStream',
+                request_serializer=rag_dot_v1_dot_rag__pb2.AskRequest.SerializeToString,
+                response_deserializer=rag_dot_v1_dot_rag__pb2.AskStreamResponse.FromString,
                 _registered_method=True)
         self.Search = channel.unary_unary(
                 '/corag.rag.v1.RagService/Search',
@@ -53,11 +58,19 @@ class RagServiceStub:
 
 
 class RagServiceServicer:
-    """Все методы — unary (один запрос → один ответ).
+    """Ask, Search, IndexIssue — unary (один запрос → один ответ); AskStream — server streaming.
     """
 
     def Ask(self, request, context):
         """Ответ на вопрос по архиву с источниками (эмбеддинг → top-k → LLM).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AskStream(self, request, context):
+        """То же, но потоком (расширение ТЗ, ЛР3): первым сообщением — источники, затем ответ LLM
+        частями по мере генерации. Конец ответа — закрытие потока со статусом OK (в trailers).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -85,6 +98,11 @@ def add_RagServiceServicer_to_server(servicer, server):
                     request_deserializer=rag_dot_v1_dot_rag__pb2.AskRequest.FromString,
                     response_serializer=rag_dot_v1_dot_rag__pb2.AskResponse.SerializeToString,
             ),
+            'AskStream': grpc.unary_stream_rpc_method_handler(
+                    servicer.AskStream,
+                    request_deserializer=rag_dot_v1_dot_rag__pb2.AskRequest.FromString,
+                    response_serializer=rag_dot_v1_dot_rag__pb2.AskStreamResponse.SerializeToString,
+            ),
             'Search': grpc.unary_unary_rpc_method_handler(
                     servicer.Search,
                     request_deserializer=rag_dot_v1_dot_rag__pb2.SearchRequest.FromString,
@@ -104,7 +122,7 @@ def add_RagServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class RagService:
-    """Все методы — unary (один запрос → один ответ).
+    """Ask, Search, IndexIssue — unary (один запрос → один ответ); AskStream — server streaming.
     """
 
     @staticmethod
@@ -124,6 +142,33 @@ class RagService:
             '/corag.rag.v1.RagService/Ask',
             rag_dot_v1_dot_rag__pb2.AskRequest.SerializeToString,
             rag_dot_v1_dot_rag__pb2.AskResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AskStream(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/corag.rag.v1.RagService/AskStream',
+            rag_dot_v1_dot_rag__pb2.AskRequest.SerializeToString,
+            rag_dot_v1_dot_rag__pb2.AskStreamResponse.FromString,
             options,
             channel_credentials,
             insecure,

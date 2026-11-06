@@ -7,10 +7,13 @@ syntax = "proto3";
 
 package corag.rag.v1;
 
-// Все методы — unary (один запрос → один ответ).
+// Ask, Search, IndexIssue — unary (один запрос → один ответ); AskStream — server streaming.
 service RagService {
   // Ответ на вопрос по архиву с источниками (эмбеддинг → top-k → LLM).
   rpc Ask (AskRequest) returns (AskResponse);
+  // То же, но потоком (расширение ТЗ, ЛР3): первым сообщением — источники, затем ответ LLM
+  // частями по мере генерации. Конец ответа — закрытие потока со статусом OK (в trailers).
+  rpc AskStream (AskRequest) returns (stream AskStreamResponse);
   // Только поиск: top-k фрагментов без генерации.
   rpc Search (SearchRequest) returns (SearchResponse);
   // Чанкинг и эмбеддинги страниц выпуска; повторный вызов заменяет чанки (идемпотентно).
@@ -47,6 +50,20 @@ message AskResponse {
   string answer = 1;
   repeated Citation citations = 2;  // по порядку ссылок [1]..[k] в ответе
   bool found = 3;          // false — релевантных фрагментов нет, LLM не вызывалась
+}
+
+// Первое сообщение потока AskStream: найденные фрагменты (до вызова LLM).
+message AskSources {
+  bool found = 1;                   // false — дальше придёт только стандартный ответ
+  repeated Citation citations = 2;  // по порядку ссылок [1]..[k]
+}
+
+// Сообщение потока AskStream: ровно одно из полей oneof.
+message AskStreamResponse {
+  oneof event {
+    AskSources sources = 1;  // первое сообщение
+    string delta = 2;        // очередной фрагмент текста ответа
+  }
 }
 
 message SearchRequest {

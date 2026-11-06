@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10rag/v1/rag.proto\x12\x0c\x63orag.rag.v1\"Q\n\x07\x46ilters\x12\x16\n\tyear_from\x18\x01 \x01(\x05H\x00\x88\x01\x01\x12\x14\n\x07year_to\x18\x02 \x01(\x05H\x01\x88\x01\x01\x42\x0c\n\n_year_fromB\n\n\x08_year_to\"U\n\nAskRequest\x12\x10\n\x08question\x18\x01 \x01(\t\x12\r\n\x05top_k\x18\x02 \x01(\x05\x12&\n\x07\x66ilters\x18\x03 \x01(\x0b\x32\x15.corag.rag.v1.Filters\"\xd7\x01\n\x08\x43itation\x12\x10\n\x08\x63hunk_id\x18\x01 \x01(\x03\x12\x17\n\narticle_id\x18\x02 \x01(\x03H\x00\x88\x01\x01\x12\x15\n\rarticle_title\x18\x03 \x01(\t\x12\x0c\n\x04year\x18\x04 \x01(\x05\x12\x14\n\x0cissue_number\x18\x05 \x01(\x05\x12\x13\n\x0bpage_number\x18\x06 \x01(\x05\x12\x0f\n\x07snippet\x18\x07 \x01(\t\x12\r\n\x05score\x18\x08 \x01(\x02\x12\x10\n\x08issue_id\x18\t \x01(\x03\x12\x0f\n\x07\x61uthors\x18\n \x03(\tB\r\n\x0b_article_id\"W\n\x0b\x41skResponse\x12\x0e\n\x06\x61nswer\x18\x01 \x01(\t\x12)\n\tcitations\x18\x02 \x03(\x0b\x32\x16.corag.rag.v1.Citation\x12\r\n\x05\x66ound\x18\x03 \x01(\x08\"U\n\rSearchRequest\x12\r\n\x05query\x18\x01 \x01(\t\x12\r\n\x05top_k\x18\x02 \x01(\x05\x12&\n\x07\x66ilters\x18\x03 \x01(\x0b\x32\x15.corag.rag.v1.Filters\"9\n\x0eSearchResponse\x12\'\n\x07results\x18\x01 \x03(\x0b\x32\x16.corag.rag.v1.Citation\"%\n\x11IndexIssueRequest\x12\x10\n\x08issue_id\x18\x01 \x01(\x03\"C\n\x12IndexIssueResponse\x12\x15\n\rpages_indexed\x18\x01 \x01(\x05\x12\x16\n\x0e\x63hunks_indexed\x18\x02 \x01(\x05\x32\xde\x01\n\nRagService\x12:\n\x03\x41sk\x12\x18.corag.rag.v1.AskRequest\x1a\x19.corag.rag.v1.AskResponse\x12\x43\n\x06Search\x12\x1b.corag.rag.v1.SearchRequest\x1a\x1c.corag.rag.v1.SearchResponse\x12O\n\nIndexIssue\x12\x1f.corag.rag.v1.IndexIssueRequest\x1a .corag.rag.v1.IndexIssueResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10rag/v1/rag.proto\x12\x0c\x63orag.rag.v1\"Q\n\x07\x46ilters\x12\x16\n\tyear_from\x18\x01 \x01(\x05H\x00\x88\x01\x01\x12\x14\n\x07year_to\x18\x02 \x01(\x05H\x01\x88\x01\x01\x42\x0c\n\n_year_fromB\n\n\x08_year_to\"U\n\nAskRequest\x12\x10\n\x08question\x18\x01 \x01(\t\x12\r\n\x05top_k\x18\x02 \x01(\x05\x12&\n\x07\x66ilters\x18\x03 \x01(\x0b\x32\x15.corag.rag.v1.Filters\"\xd7\x01\n\x08\x43itation\x12\x10\n\x08\x63hunk_id\x18\x01 \x01(\x03\x12\x17\n\narticle_id\x18\x02 \x01(\x03H\x00\x88\x01\x01\x12\x15\n\rarticle_title\x18\x03 \x01(\t\x12\x0c\n\x04year\x18\x04 \x01(\x05\x12\x14\n\x0cissue_number\x18\x05 \x01(\x05\x12\x13\n\x0bpage_number\x18\x06 \x01(\x05\x12\x0f\n\x07snippet\x18\x07 \x01(\t\x12\r\n\x05score\x18\x08 \x01(\x02\x12\x10\n\x08issue_id\x18\t \x01(\x03\x12\x0f\n\x07\x61uthors\x18\n \x03(\tB\r\n\x0b_article_id\"W\n\x0b\x41skResponse\x12\x0e\n\x06\x61nswer\x18\x01 \x01(\t\x12)\n\tcitations\x18\x02 \x03(\x0b\x32\x16.corag.rag.v1.Citation\x12\r\n\x05\x66ound\x18\x03 \x01(\x08\"F\n\nAskSources\x12\r\n\x05\x66ound\x18\x01 \x01(\x08\x12)\n\tcitations\x18\x02 \x03(\x0b\x32\x16.corag.rag.v1.Citation\"Z\n\x11\x41skStreamResponse\x12+\n\x07sources\x18\x01 \x01(\x0b\x32\x18.corag.rag.v1.AskSourcesH\x00\x12\x0f\n\x05\x64\x65lta\x18\x02 \x01(\tH\x00\x42\x07\n\x05\x65vent\"U\n\rSearchRequest\x12\r\n\x05query\x18\x01 \x01(\t\x12\r\n\x05top_k\x18\x02 \x01(\x05\x12&\n\x07\x66ilters\x18\x03 \x01(\x0b\x32\x15.corag.rag.v1.Filters\"9\n\x0eSearchResponse\x12\'\n\x07results\x18\x01 \x03(\x0b\x32\x16.corag.rag.v1.Citation\"%\n\x11IndexIssueRequest\x12\x10\n\x08issue_id\x18\x01 \x01(\x03\"C\n\x12IndexIssueResponse\x12\x15\n\rpages_indexed\x18\x01 \x01(\x05\x12\x16\n\x0e\x63hunks_indexed\x18\x02 \x01(\x05\x32\xa8\x02\n\nRagService\x12:\n\x03\x41sk\x12\x18.corag.rag.v1.AskRequest\x1a\x19.corag.rag.v1.AskResponse\x12H\n\tAskStream\x12\x18.corag.rag.v1.AskRequest\x1a\x1f.corag.rag.v1.AskStreamResponse0\x01\x12\x43\n\x06Search\x12\x1b.corag.rag.v1.SearchRequest\x1a\x1c.corag.rag.v1.SearchResponse\x12O\n\nIndexIssue\x12\x1f.corag.rag.v1.IndexIssueRequest\x1a .corag.rag.v1.IndexIssueResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -39,14 +39,18 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_CITATION']._serialized_end=420
   _globals['_ASKRESPONSE']._serialized_start=422
   _globals['_ASKRESPONSE']._serialized_end=509
-  _globals['_SEARCHREQUEST']._serialized_start=511
-  _globals['_SEARCHREQUEST']._serialized_end=596
-  _globals['_SEARCHRESPONSE']._serialized_start=598
-  _globals['_SEARCHRESPONSE']._serialized_end=655
-  _globals['_INDEXISSUEREQUEST']._serialized_start=657
-  _globals['_INDEXISSUEREQUEST']._serialized_end=694
-  _globals['_INDEXISSUERESPONSE']._serialized_start=696
-  _globals['_INDEXISSUERESPONSE']._serialized_end=763
-  _globals['_RAGSERVICE']._serialized_start=766
-  _globals['_RAGSERVICE']._serialized_end=988
+  _globals['_ASKSOURCES']._serialized_start=511
+  _globals['_ASKSOURCES']._serialized_end=581
+  _globals['_ASKSTREAMRESPONSE']._serialized_start=583
+  _globals['_ASKSTREAMRESPONSE']._serialized_end=673
+  _globals['_SEARCHREQUEST']._serialized_start=675
+  _globals['_SEARCHREQUEST']._serialized_end=760
+  _globals['_SEARCHRESPONSE']._serialized_start=762
+  _globals['_SEARCHRESPONSE']._serialized_end=819
+  _globals['_INDEXISSUEREQUEST']._serialized_start=821
+  _globals['_INDEXISSUEREQUEST']._serialized_end=858
+  _globals['_INDEXISSUERESPONSE']._serialized_start=860
+  _globals['_INDEXISSUERESPONSE']._serialized_end=927
+  _globals['_RAGSERVICE']._serialized_start=930
+  _globals['_RAGSERVICE']._serialized_end=1226
 # @@protoc_insertion_point(module_scope)

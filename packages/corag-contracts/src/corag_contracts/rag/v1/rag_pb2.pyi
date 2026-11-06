@@ -58,6 +58,22 @@ class AskResponse(_message.Message):
     found: bool
     def __init__(self, answer: _Optional[str] = ..., citations: _Optional[_Iterable[_Union[Citation, _Mapping]]] = ..., found: _Optional[bool] = ...) -> None: ...
 
+class AskSources(_message.Message):
+    __slots__ = ("found", "citations")
+    FOUND_FIELD_NUMBER: _ClassVar[int]
+    CITATIONS_FIELD_NUMBER: _ClassVar[int]
+    found: bool
+    citations: _containers.RepeatedCompositeFieldContainer[Citation]
+    def __init__(self, found: _Optional[bool] = ..., citations: _Optional[_Iterable[_Union[Citation, _Mapping]]] = ...) -> None: ...
+
+class AskStreamResponse(_message.Message):
+    __slots__ = ("sources", "delta")
+    SOURCES_FIELD_NUMBER: _ClassVar[int]
+    DELTA_FIELD_NUMBER: _ClassVar[int]
+    sources: AskSources
+    delta: str
+    def __init__(self, sources: _Optional[_Union[AskSources, _Mapping]] = ..., delta: _Optional[str] = ...) -> None: ...
+
 class SearchRequest(_message.Message):
     __slots__ = ("query", "top_k", "filters")
     QUERY_FIELD_NUMBER: _ClassVar[int]
