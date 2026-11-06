@@ -1,0 +1,86 @@
+// Контракт RAG Service (ЛР3). Черновик — приложение А ТЗ (docs/LR0_TZ.md).
+// Код Python генерирует scripts/gen_proto.sh в packages/corag-contracts/src/corag_contracts/rag/v1/.
+//
+// Правила эволюции: номера полей не меняем и не переиспользуем; новые поля только добавляем
+// с новыми номерами; удалённые номера помечаем reserved.
+syntax = "proto3";
+
+package corag.rag.v1;
+
+// Ask, Search, IndexIssue — unary (один запрос → один ответ); AskStream — server streaming.
+service RagService {
+  // Ответ на вопрос по архиву с источниками (эмбеддинг → top-k → LLM).
+  rpc Ask (AskRequest) returns (AskResponse);
+  // То же, но потоком (расширение ТЗ, ЛР3): первым сообщением — источники, затем ответ LLM
+  // частями по мере генерации. Конец ответа — закрытие потока со статусом OK (в trailers).
+  rpc AskStream (AskRequest) returns (stream AskStreamResponse);
+  // Только поиск: top-k фрагментов без генерации.
+  rpc Search (SearchRequest) returns (SearchResponse);
+  // Чанкинг и эмбеддинги страниц выпуска; повторный вызов заменяет чанки (идемпотентно).
+  rpc IndexIssue (IndexIssueRequest) returns (IndexIssueResponse);
+}
+
+message Filters {
+  optional int32 year_from = 1;
+  optional int32 year_to = 2;
+}
+
+message AskRequest {
+  string question = 1;
+  int32 top_k = 2;          // 0 — значение по умолчанию сервера (TOP_K=5)
+  Filters filters = 3;
+}
+
+message Citation {
+  int64 chunk_id = 1;
+  optional int64 article_id = 2;   // пусто, если страница ещё не размечена
+  string article_title = 3;
+  int32 year = 4;
+  int32 issue_number = 5;
+  int32 page_number = 6;
+  string snippet = 7;
+  float score = 8;                 // косинусное сходство, 1 — совпадение
+  // Расширение черновика ТЗ (ЛР3): ссылка на страницу GET /issues/{issue_id}/pages/{n}
+  // и авторы статьи (СЦ-1) в порядке author_order.
+  int64 issue_id = 9;
+  repeated string authors = 10;
+}
+
+message AskResponse {
+  string answer = 1;
+  repeated Citation citations = 2;  // по порядку ссылок [1]..[k] в ответе
+  bool found = 3;          // false — релевантных фрагментов нет, LLM не вызывалась
+}
+
+// Первое сообщение потока AskStream: найденные фрагменты (до вызова LLM).
+message AskSources {
+  bool found = 1;                   // false — дальше придёт только стандартный ответ
+  repeated Citation citations = 2;  // по порядку ссылок [1]..[k]
+}
+
+// Сообщение потока AskStream: ровно одно из полей oneof.
+message AskStreamResponse {
+  oneof event {
+    AskSources sources = 1;  // первое сообщение
+    string delta = 2;        // очередной фрагмент текста ответа
+  }
+}
+
+message SearchRequest {
+  string query = 1;
+  int32 top_k = 2;
+  Filters filters = 3;
+}
+
+message SearchResponse {
+  repeated Citation results = 1;
+}
+
+message IndexIssueRequest {
+  int64 issue_id = 1;
+}
+
+message IndexIssueResponse {
+  int32 pages_indexed = 1;
+  int32 chunks_indexed = 2;
+}

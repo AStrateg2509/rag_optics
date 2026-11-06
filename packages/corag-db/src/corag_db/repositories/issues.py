@@ -30,6 +30,12 @@ class IssueRepository(BaseRepository[Issue]):
             stmt = stmt.where(Issue.year == year)
         return (await self.session.scalars(stmt)).all()
 
+    async def count(self, *, year: int | None = None) -> int:
+        stmt = select(func.count(Issue.id))
+        if year is not None:
+            stmt = stmt.where(Issue.year == year)
+        return await self.session.scalar(stmt) or 0
+
     async def get_by_year_number(self, year: int, number: int) -> Issue | None:
         stmt = select(Issue).where(Issue.year == year, Issue.number == number)
         return await self.session.scalar(stmt)

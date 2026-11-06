@@ -17,5 +17,45 @@ services:
       timeout: 3s
       retries: 10
 
+  # LLM-сервер для RAG Service (ЛР3): OpenAI-совместимый API на http://localhost:11434/v1
+  # Модель: docker compose -f docker-compose.dev.yml exec ollama ollama pull "$LLM_MODEL"
+  ollama:
+    image: ollama/ollama:0.40.8
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    environment:
+      # Модель остаётся в видеопамяти 30 мин после запроса (по умолчанию 5 мин)
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      # Контекст в токенах: 5 фрагментов по 512 токенов + инструкция и вопрос.
+      # Через /v1 num_ctx не передать, а при меньшем контексте промпт молча обрежется
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-8192}
+    volumes:
+      - ollama:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Reverse proxy (доп. задание ЛР2): статика на /, API на /api/
+  nginx:
+    image: nginx:stable-alpine
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/static:/usr/share/nginx/html:ro
+    # API пока запущен в WSL, а не в контейнере: проксируем на хост
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   pgdata:
+  ollama:

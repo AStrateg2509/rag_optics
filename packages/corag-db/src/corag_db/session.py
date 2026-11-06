@@ -62,6 +62,11 @@ async def get_session() -> AsyncIterator[AsyncSession]:
             raise
 
 
+async def ping(session: AsyncSession) -> None:
+    """Проверка доступности БД (SELECT 1); при недоступности — исключение драйвера."""
+    await session.execute(text("SELECT 1"))
+
+
 async def dispose_engine() -> None:
     """Закрыть пул соединений движка по умолчанию."""
     global _engine, _sessionmaker
